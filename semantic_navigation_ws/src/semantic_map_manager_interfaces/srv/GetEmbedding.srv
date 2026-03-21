@@ -1,0 +1,9 @@
+# Request
+sensor_msgs/Image image  # Input image (when use_image is true)
+string text              # Input text (when use_image is false)
+bool use_image           # Set true to embed the image, false to embed the text
+---
+# Response
+float32[] embedding      # Embedding vector returned by SigLIP 2
+bool success             # True if the embedding was computed successfully
+string message           # Human-readable status or error message

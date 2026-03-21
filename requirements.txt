@@ -1,0 +1,23 @@
+# Python dependencies for the visual-semantic navigation project
+#
+# Install with:
+#   pip install -r requirements.txt
+#
+# Note: ROS 2 packages (rclpy, sensor_msgs, cv_bridge, nav2_simple_commander,
+# tf2_ros) are installed via apt / colcon build and are NOT listed here.
+
+# Deep learning inference
+torch>=2.0.0
+transformers>=4.35.0
+# Pillow is pulled in by transformers but listed explicitly for clarity
+Pillow>=9.0.0
+
+# Image processing (ROS ↔ OpenCV bridge)
+opencv-python>=4.7.0
+
+# Similarity computation (optional – numpy is used for cosine similarity in
+# semantic_navigator.py, but scipy is available for other metrics)
+scipy>=1.10.0
+
+# Dependency of transformers
+numpy>=1.24.0
