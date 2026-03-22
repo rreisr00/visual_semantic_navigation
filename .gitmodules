@@ -1,0 +1,3 @@
+[submodule "semantic_navigation_ws/src/knowledge_graph"]
+	path = semantic_navigation_ws/src/knowledge_graph
+	url = git@github.com:mgonzs13/knowledge_graph.git
