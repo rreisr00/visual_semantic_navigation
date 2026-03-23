@@ -56,6 +56,16 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
+### Build order (knowledge_graph first)
+
+`knowledge_graph` includes C++ targets. In this workspace layout (`src/knowledge_graph` side-by-side with your packages), compile it first and then build the rest:
+
+```bash
+cd semantic_navigation_ws
+./build_kg_first.sh
+source install/setup.bash
+```
+
 ---
 
 ## Usage
@@ -67,6 +77,13 @@ source install/setup.bash
 export TURTLEBOT3_MODEL=waffle
 
 ros2 launch semantic_simulation simulation.launch.py
+```
+
+### Launch AWS house world with Gazebo Harmonic (`gz sim`)
+
+```bash
+source semantic_navigation_ws/install/setup.bash
+ros2 launch aws_robomaker_small_house_world small_house.launch.py gui:=true
 ```
 
 Optional arguments:
