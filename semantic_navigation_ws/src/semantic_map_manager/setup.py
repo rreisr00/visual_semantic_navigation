@@ -9,6 +9,7 @@ setup(
     data_files=[
         ("share/ament_index/resource_index/packages", [f"resource/{package_name}"]),
         (f"share/{package_name}", ["package.xml"]),
+        (f"share/{package_name}/srv", ["srv/GetEmbedding.srv"]),
     ],
     install_requires=["setuptools"],
     zip_safe=True,
@@ -22,6 +23,7 @@ setup(
             "siglip_inference = semantic_map_manager.siglip_inference:main",
             "waypoint_capture = semantic_map_manager.waypoint_capture:main",
             "semantic_navigator = semantic_map_manager.semantic_navigator:main",
+            "test_integration = semantic_map_manager.test_integration:main",
         ],
     },
 )

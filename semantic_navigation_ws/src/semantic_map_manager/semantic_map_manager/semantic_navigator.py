@@ -23,13 +23,8 @@ from geometry_msgs.msg import PoseStamped, Quaternion
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 
 from semantic_map_manager_interfaces.srv import GetEmbedding
-from knowledge_graph.knowledge_graph_client import KnowledgeGraphClient
-
-
-def _cosine_similarity(a: np.ndarray, b: np.ndarray) -> float:
-    """Return the cosine similarity between two 1-D arrays."""
-    denom = (np.linalg.norm(a) * np.linalg.norm(b)) + 1e-8
-    return float(np.dot(a, b) / denom)
+from semantic_map_manager.knowledge_graph_client import KnowledgeGraphClient
+from semantic_map_manager.utils import cosine_similarity
 
 
 class SemanticNavigatorNode(Node):
@@ -103,7 +98,7 @@ class SemanticNavigatorNode(Node):
             except ValueError:
                 continue
 
-            score = _cosine_similarity(query_embedding, node_embedding)
+            score = cosine_similarity(query_embedding, node_embedding)
             if score > best_score:
                 best_score = score
                 best_node = attrs

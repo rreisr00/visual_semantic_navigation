@@ -1,7 +1,7 @@
 """Unit tests for the semantic_map_manager package.
 
 These tests run without a live ROS 2 environment – they exercise the pure-Python
-logic of the nodes (cosine similarity, knowledge graph in-memory store, etc.).
+logic of the nodes (cosine similarity, knowledge graph adapter, etc.).
 """
 
 import sys
@@ -97,17 +97,56 @@ def _stub_cv_bridge() -> None:
 
 
 def _stub_knowledge_graph() -> None:
-    """Stub the knowledge_graph package so semantic_navigator can be imported."""
-    for pkg in ["knowledge_graph", "knowledge_graph.knowledge_graph_client"]:
-        _make_stub_module(pkg)
+    """Stub the knowledge_graph package so semantic_map_manager can be imported."""
+    _make_stub_module("knowledge_graph")
 
-    import knowledge_graph.knowledge_graph_client as kgc
+    import knowledge_graph as kg
 
-    class _StubKGClient:
-        def __init__(self, *args, **kwargs):
-            pass
+    class _StubNode:
+        def __init__(self, name: str, type_: str):
+            self._name = name
+            self._type = type_
+            self.properties = types.SimpleNamespace(_properties={})
 
-    kgc.KnowledgeGraphClient = _StubKGClient  # type: ignore[attr-defined]
+        def get_name(self):
+            return self._name
+
+        def get_type(self):
+            return self._type
+
+        def set_property(self, key: str, value):
+            self.properties._properties[key] = value
+
+    class _StubKnowledgeGraph:
+        _instance = None
+
+        @staticmethod
+        def get_instance():
+            if _StubKnowledgeGraph._instance is None:
+                _StubKnowledgeGraph._instance = _StubKnowledgeGraph()
+            return _StubKnowledgeGraph._instance
+
+        def __init__(self):
+            self._nodes = {}
+
+        def has_node(self, name: str):
+            return name in self._nodes
+
+        def get_node(self, name: str):
+            return self._nodes[name]
+
+        def create_node(self, name: str, type_: str):
+            node = _StubNode(name, type_)
+            self._nodes[name] = node
+            return node
+
+        def update_node(self, node):
+            self._nodes[node.get_name()] = node
+
+        def get_nodes(self):
+            return list(self._nodes.values())
+
+    kg.KnowledgeGraph = _StubKnowledgeGraph  # type: ignore[attr-defined]
 
 
 _stub_rclpy()
@@ -124,29 +163,28 @@ _stub_knowledge_graph()
 
 import numpy as np  # noqa: E402
 
-# Import cosine similarity helper from semantic_navigator directly
+# Import cosine similarity helper from utils directly
 import importlib.util
 import pathlib  # noqa: E402
 
 _repo = pathlib.Path(__file__).parent.parent
-_nav_path = _repo / "semantic_map_manager" / "semantic_navigator.py"
-_spec = importlib.util.spec_from_file_location("semantic_navigator", _nav_path)
-_nav_mod = importlib.util.module_from_spec(_spec)  # type: ignore[arg-type]
-_spec.loader.exec_module(_nav_mod)  # type: ignore[union-attr]
+if str(_repo) not in sys.path:
+    sys.path.insert(0, str(_repo))
 
-_cosine_similarity = _nav_mod._cosine_similarity  # type: ignore[attr-defined]
+_utils_path = _repo / "semantic_map_manager" / "utils.py"
+_utils_spec = importlib.util.spec_from_file_location("utils", _utils_path)
+_utils_mod = importlib.util.module_from_spec(_utils_spec)  # type: ignore[arg-type]
+_utils_spec.loader.exec_module(_utils_mod)  # type: ignore[union-attr]
 
-# Import KnowledgeGraphClient (in-memory store)
-# _repo is  .../src/semantic_map_manager  →  go up one level to reach src/
-_kg_path = (
-    _repo.parent
-    / "third_party" / "knowledge_graph" / "knowledge_graph" / "knowledge_graph_client.py"
-)
+_cosine_similarity = _utils_mod.cosine_similarity  # type: ignore[attr-defined]
+
+# Import local KnowledgeGraphClient adapter
+_kg_path = _repo / "semantic_map_manager" / "knowledge_graph_client.py"
 _kg_spec = importlib.util.spec_from_file_location("knowledge_graph_client", _kg_path)
 _kg_mod = importlib.util.module_from_spec(_kg_spec)  # type: ignore[arg-type]
 _kg_spec.loader.exec_module(_kg_mod)  # type: ignore[union-attr]
 
-_InMemoryStore = _kg_mod._InMemoryStore  # type: ignore[attr-defined]
+KnowledgeGraphClient = _kg_mod.KnowledgeGraphClient  # type: ignore[attr-defined]
 
 # ---------------------------------------------------------------------------
 # Tests
@@ -180,9 +218,12 @@ class TestCosineSimilarity:
         assert isinstance(_cosine_similarity(a, b), float)
 
 
-class TestInMemoryStore:
-    def _fresh(self) -> "_InMemoryStore":
-        return _InMemoryStore()
+class TestKnowledgeGraphAdapter:
+    def _fresh(self) -> "KnowledgeGraphClient":
+        client = KnowledgeGraphClient()
+        if hasattr(client, "_graph") and hasattr(client._graph, "_nodes"):
+            client._graph._nodes = {}
+        return client
 
     def test_add_and_get_node(self):
         store = self._fresh()
