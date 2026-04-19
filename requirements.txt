@@ -21,3 +21,11 @@ scipy>=1.10.0
 
 # Dependency of transformers
 numpy>=1.24.0
+
+matplotlib>=3.10.8
+
+sentencepiece>=0.2.1
+
+scikit-learn>=1.8.0
+
+protobuf>=7.34.1
