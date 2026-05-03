@@ -1,0 +1,126 @@
+flowchart LR
+    %% ── Styles ──────────────────────────────────────────────────────────────────
+    classDef actor    fill:#0f172a,stroke:#475569,color:#e2e8f0
+    classDef percep   fill:#1e3a8a,stroke:#60a5fa,color:#bfdbfe
+    classDef local    fill:#14532d,stroke:#4ade80,color:#bbf7d0
+    classDef semantic fill:#3b0764,stroke:#a855f7,color:#e9d5ff
+    classDef memory   fill:#7c2d12,stroke:#fb923c,color:#fed7aa
+    classDef nav      fill:#0c4a6e,stroke:#38bdf8,color:#bae6fd
+    classDef capture  fill:#134e4a,stroke:#34d399,color:#a7f3d0
+    classDef monitor  fill:#1f2937,stroke:#6b7280,color:#d1d5db
+
+    %% ── External Actors ─────────────────────────────────────────────────────────
+    ENV(["🌍 Environment"]):::actor
+    OPR(["👤 Operator"]):::actor
+    TRIG(["⚡ Trigger"]):::actor
+
+    %% ── Physical Layer ───────────────────────────────────────────────────────────
+    subgraph PHYS["  PHYSICAL LAYER  "]
+        direction TB
+        subgraph F1["F1 · PERCEPTION"]
+            direction TB
+            F1A["Visual Acquisition"]:::percep
+            F1B["Range Acquisition"]:::percep
+            F1C["Odometry Acquisition"]:::percep
+        end
+        subgraph F2["F2 · LOCALIZATION"]
+            direction TB
+            F2A["Pose Estimator"]:::local
+            F2B["Map Manager"]:::local
+        end
+    end
+
+    %% ── Semantic Core Layer ──────────────────────────────────────────────────────
+    subgraph SEMCORE["  SEMANTIC CORE  "]
+        direction TB
+        subgraph F3["F3 · SEMANTIC UNDERSTANDING"]
+            direction TB
+            F3A["Visual Encoder"]:::semantic
+            F3B["Language Encoder"]:::semantic
+            F3C["Similarity Engine"]:::semantic
+        end
+        subgraph F6["F6 · WAYPOINT CAPTURE"]
+            direction TB
+            F6A["Capture Orchestrator"]:::capture
+            F6B["Embedding Binder"]:::capture
+        end
+    end
+
+    %% ── Semantic Memory ──────────────────────────────────────────────────────────
+    subgraph F4["F4 · SEMANTIC MEMORY"]
+        direction TB
+        F4A["Waypoint Registry"]:::memory
+        F4B["Graph Store"]:::memory
+        F4C["Persistence Layer"]:::memory
+        F4D["Sync Engine"]:::memory
+    end
+
+    %% ── Output Layer ─────────────────────────────────────────────────────────────
+    subgraph OUT["  OUTPUT LAYER  "]
+        direction TB
+        subgraph F5["F5 · NAVIGATION"]
+            F5A["Navigation Stack"]:::nav
+        end
+        subgraph F7["F7 · MONITORING"]
+            direction TB
+            F7A["State Monitor"]:::monitor
+            F7B["Graph Viewer"]:::monitor
+        end
+    end
+
+    %% ── Environment → Perception ────────────────────────────────────────────────
+    ENV -->|"VisualFrame"| F1A
+    ENV -->|"RangeData"| F1B
+    ENV -->|"OdometryDelta"| F1C
+
+    %% ── Trigger → Waypoint Capture ───────────────────────────────────────────────
+    TRIG -->|"CaptureEvent"| F6A
+
+    %% ── Operator → Navigation ────────────────────────────────────────────────────
+    OPR -->|"NavigationGoal"| F5A
+
+    %% ── Perception → Localization ───────────────────────────────────────────────
+    F1B -->|"Scan"| F2A
+    F1C -->|"OdometryDelta"| F2A
+    F2A <-->|"OccupancyMap"| F2B
+
+    %% ── Perception → Semantic Core ──────────────────────────────────────────────
+    F1A -->|"VisualFrame"| F3A
+    F1A -->|"VisualFrame"| F6A
+
+    %% ── Localization → Capture & Navigation ──────────────────────────────────────
+    F2A -->|"RobotPose"| F6A
+    F2A -->|"RobotPose"| F5A
+    F2B -->|"OccupancyMap"| F5A
+    F2B -->|"MapState"| F7A
+
+    %% ── Waypoint Capture internal ────────────────────────────────────────────────
+    F6A -->|"encode( VisualFrame )"| F3A
+    F3A -->|"SemanticVector[ VISUAL ]"| F6B
+    F6A -->|"Frame + Pose"| F6B
+    F6B -->|"WaypointRecord"| F4A
+
+    %% ── Semantic Memory internal ─────────────────────────────────────────────────
+    F4A <-->|"NodeOps"| F4B
+    F4B <-->|"Checkpoint"| F4C
+    F4B <-->|"GraphUpdate"| F4D
+    F4D -->|"ChangeEvent"| F7B
+    F4B -->|"GraphState"| F7B
+
+    %% ── Navigation ↔ Semantic Core & Memory ──────────────────────────────────────
+    F5A -->|"encode( query )"| F3B
+    F3B -->|"SemanticVector[ TEXT ]"| F5A
+    F5A -->|"retrieve_all"| F4A
+    F4A -->|"WaypointRecord[ ]"| F5A
+    F5A -->|"rank( query, waypoints )"| F3C
+    F3C -->|"ScoredWaypoints"| F5A
+    F5A -->|"MotionCommand"| ENV
+
+    %% ── Monitoring ───────────────────────────────────────────────────────────────
+    F5A -->|"NavigationStatus"| F7A
+    F7A -->|"Status & Telemetry"| OPR
+
+    %% ── Layer styles ─────────────────────────────────────────────────────────────
+    style PHYS    fill:#0d1117,stroke:#30363d,color:#8b949e
+    style SEMCORE fill:#0d1117,stroke:#30363d,color:#8b949e
+    style OUT     fill:#0d1117,stroke:#30363d,color:#8b949e

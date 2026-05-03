@@ -1,0 +1,20 @@
+flowchart TB
+    subgraph SYSTEM["◈ VISUAL SEMANTIC NAVIGATION SYSTEM"]
+        VSN[" "]
+    end
+
+    OPR(["Operator"])
+    ENV(["Physical Environment"])
+    MAP(["Semantic Knowledge\nBase"])
+    EXTCTL(["External Control\nSystem"])
+
+    OPR -->|"Navigation Intent\n(natural language / structured goal)"| SYSTEM
+    SYSTEM -->|"Navigation Status\n& Feedback"| OPR
+
+    ENV -->|"Sensory Data\n(visual, range, odometry)"| SYSTEM
+    SYSTEM -->|"Motion Commands"| ENV
+
+    SYSTEM <-->|"Persistent Semantic Memory\n(read / write)"| MAP
+
+    EXTCTL -->|"Waypoint Capture Trigger"| SYSTEM
+    SYSTEM -->|"Execution Events\n& Telemetry"| EXTCTL

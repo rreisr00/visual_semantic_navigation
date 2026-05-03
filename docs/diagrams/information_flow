@@ -1,0 +1,43 @@
+flowchart LR
+    EXT_Q(["Navigation\nIntent"])
+    EXT_T(["Capture\nTrigger"])
+    EXT_ENV(["Environment"])
+
+    subgraph SYSTEM["◈ VISUAL SEMANTIC NAVIGATION SYSTEM"]
+
+        F1["F1\nPERCEPTION"]
+        F2["F2\nLOCALIZATION"]
+        F3["F3\nSEMANTIC\nUNDERSTANDING"]
+        F4["F4\nSEMANTIC\nMEMORY"]
+        F5["F5\nNAVIGATION"]
+        F6["F6\nWAYPOINT\nCAPTURE"]
+        F7["F7\nMONITORING"]
+
+        F1 -->|"Visual Frame\n«image data»"| F6
+        F1 -->|"Visual Frame\n«image data»"| F3
+        F1 -->|"Range Data\n«point cloud / scan»"| F2
+        F1 -->|"Odometry\n«velocity / pose delta»"| F2
+
+        F2 -->|"Robot Pose\n«6-DOF pose in map»"| F6
+        F2 -->|"Robot Pose\n«6-DOF pose in map»"| F5
+
+        EXT_Q -->|"Semantic Goal\n«text / intent»"| F3
+        EXT_T -->|"Capture Event\n«trigger signal»"| F6
+
+        F3 -->|"Query Embedding\n«semantic vector»"| F5
+        F3 -->|"Frame Embedding\n«semantic vector»"| F6
+        F3 -->|"Ranked Candidates\n«scored waypoints»"| F5
+
+        F4 -->|"Waypoint Set\n«pose + embedding»"| F3
+        F4 -->|"Graph Events\n«change notifications»"| F7
+
+        F6 -->|"Waypoint Record\n«pose + embedding + id»"| F4
+
+        F5 -->|"Motion Command\n«velocity / trajectory»"| EXT_ENV
+        F5 -->|"Goal Request\n«metric pose»"| F5
+        F5 -->|"Navigation Status\n«progress / done / fail»"| F7
+
+        F2 -->|"Map State\n«occupancy / costmap»"| F7
+    end
+
+    EXT_ENV -->|"Sensor Streams"| F1

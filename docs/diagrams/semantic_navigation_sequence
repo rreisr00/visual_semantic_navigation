@@ -1,0 +1,29 @@
+sequenceDiagram
+    actor Operator
+    participant F5 as Navigation
+    participant F3 as Semantic Understanding
+    participant F4 as Semantic Memory
+    participant F2 as Localization
+    participant ENV as Motion Executor
+
+    Operator ->> F5: navigate_to(NavigationGoal{query="find the sofa"})
+    activate F5
+    F5 ->> F3: encode(query_text) → SemanticVector
+    activate F3
+    F3 -->> F5: SemanticVector [modality=TEXT]
+    deactivate F3
+    F5 ->> F4: retrieve_all(class=waypoint)
+    F4 -->> F5: WaypointRecord[]
+    loop For each waypoint
+        F5 ->> F3: similarity(query_vec, waypoint.embedding)
+        F3 -->> F5: score: float
+    end
+    F5 ->> F2: request(current_pose)
+    F2 -->> F5: RobotPose
+    F5 ->> F5: plan_path(from=current_pose, to=best_waypoint.pose)
+    loop Execution
+        F5 ->> ENV: MotionCommand
+        ENV -->> F5: odometry_feedback
+    end
+    F5 -->> Operator: NavigationStatus{DONE}
+    deactivate F5

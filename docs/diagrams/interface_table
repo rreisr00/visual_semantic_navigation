@@ -1,0 +1,54 @@
+classDiagram
+    class VisualFrame {
+        +width: uint
+        +height: uint
+        +encoding: string
+        +pixels: byte[]
+        +timestamp: time
+    }
+
+    class SemanticVector {
+        +values: float[]
+        +dimension: uint
+        +modality: enum[VISUAL, TEXT]
+        +l2_normalized: bool
+    }
+
+    class RobotPose {
+        +frame_id: string
+        +position: Vector3
+        +orientation: Quaternion
+        +timestamp: time
+    }
+
+    class WaypointRecord {
+        +id: uuid
+        +pose: RobotPose
+        +embedding: SemanticVector
+        +metadata: map
+    }
+
+    class NavigationGoal {
+        +type: enum[SEMANTIC, METRIC]
+        +query: string
+        +pose: RobotPose
+    }
+
+    class MotionCommand {
+        +linear: Vector3
+        +angular: Vector3
+    }
+
+    class NavigationStatus {
+        +state: enum[PLANNING, EXECUTING, DONE, FAILED]
+        +distance_remaining: float
+        +error: string
+    }
+
+    VisualFrame --> SemanticVector : encoded by F3
+    RobotPose --> WaypointRecord : component of
+    SemanticVector --> WaypointRecord : component of
+    NavigationGoal --> SemanticVector : resolved via F3
+    NavigationGoal --> RobotPose : resolved to
+    RobotPose --> MotionCommand : planned into
+    MotionCommand --> NavigationStatus : produces

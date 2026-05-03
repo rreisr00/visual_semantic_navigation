@@ -1,0 +1,43 @@
+flowchart TD
+    subgraph VSN["◈ VISUAL SEMANTIC NAVIGATION SYSTEM"]
+
+        subgraph PERCEP["F1 · PERCEPTION"]
+            F1A["F1.1\nVisual Acquisition\n─────────────\nCaptures raw visual\nframes from sensors"]
+            F1B["F1.2\nRange Acquisition\n─────────────\nCaptures depth/range\nsensor data"]
+            F1C["F1.3\nOdometry Acquisition\n─────────────\nCaptures motion/\nwheel encoder data"]
+        end
+
+        subgraph LOC["F2 · LOCALIZATION"]
+            F2A["F2.1\nPose Estimator\n─────────────\nFuses sensor data to\nestimate robot pose"]
+            F2B["F2.2\nMap Manager\n─────────────\nMaintains occupancy\nor metric map"]
+        end
+
+        subgraph SEM["F3 · SEMANTIC UNDERSTANDING"]
+            F3A["F3.1\nVisual Encoder\n─────────────\nMaps visual frames\nto semantic vectors"]
+            F3B["F3.2\nLanguage Encoder\n─────────────\nMaps natural language\nto semantic vectors"]
+            F3C["F3.3\nSimilarity Engine\n─────────────\nRanks candidates by\nsemantic relevance"]
+        end
+
+        subgraph MEM["F4 · SEMANTIC MEMORY"]
+            F4A["F4.1\nWaypoint Registry\n─────────────\nStores pose + semantic\nvector per waypoint"]
+            F4B["F4.2\nGraph Store\n─────────────\nManages nodes, edges\nand relationships"]
+            F4C["F4.3\nPersistence Layer\n─────────────\nDurable storage and\nrecovery of graph"]
+            F4D["F4.4\nSync Engine\n─────────────\nDistributes graph\nacross processes"]
+        end
+
+        subgraph NAV["F5 · NAVIGATION"]
+            F5A["F5.1\nGoal Resolver\n─────────────\nConverts semantic goal\nto metric pose"]
+            F5B["F5.2\nPath Planner\n─────────────\nComputes collision-free\npath to goal"]
+            F5C["F5.3\nMotion Controller\n─────────────\nExecutes path with\nfeedback control"]
+        end
+
+        subgraph CAP["F6 · WAYPOINT CAPTURE"]
+            F6A["F6.1\nCapture Orchestrator\n─────────────\nCoordinates pose +\nvision + embedding"]
+            F6B["F6.2\nEmbedding Binder\n─────────────\nAssociates embedding\nwith pose snapshot"]
+        end
+
+        subgraph MON["F7 · MONITORING & VISUALIZATION"]
+            F7A["F7.1\nState Monitor\n─────────────\nTracks and exposes\nsystem state"]
+            F7B["F7.2\nGraph Viewer\n─────────────\nVisualizes semantic\nmemory structure"]
+        end
+    end
