@@ -8,7 +8,7 @@
 
 # Deep learning inference
 torch>=2.0.0
-transformers>=4.35.0
+transformers>=4.45.0
 # Pillow is pulled in by transformers but listed explicitly for clarity
 Pillow>=9.0.0
 
@@ -29,3 +29,7 @@ sentencepiece>=0.2.1
 scikit-learn>=1.8.0
 
 protobuf>=7.34.1
+
+chromadb>=0.6.0
+
+ultralytics>=8.0.0
