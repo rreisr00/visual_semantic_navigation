@@ -1,0 +1,49 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>semantic_bringup</name>
+  <version>0.1.0</version>
+  <description>
+    Deployment package for the visual-semantic navigation project.
+    Self-contained bringup that launches Gazebo (AWS Small House), TurtleBot3 Waffle,
+    the full Nav2 stack, RViz2, and the semantic map manager nodes.
+    Isolates all project-specific configuration from the system base packages.
+  </description>
+  <maintainer email="rreisr00@estudiantes.unileon.es">developer</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+
+  <!-- Simulation -->
+  <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>turtlebot3_gazebo</exec_depend>
+  <exec_depend>aws_robomaker_small_house_world</exec_depend>
+
+  <!-- Navigation -->
+  <exec_depend>nav2_bringup</exec_depend>
+  <exec_depend>nav2_map_server</exec_depend>
+  <exec_depend>nav2_amcl</exec_depend>
+  <exec_depend>nav2_controller</exec_depend>
+  <exec_depend>nav2_smoother</exec_depend>
+  <exec_depend>nav2_planner</exec_depend>
+  <exec_depend>nav2_route</exec_depend>
+  <exec_depend>nav2_behaviors</exec_depend>
+  <exec_depend>nav2_bt_navigator</exec_depend>
+  <exec_depend>nav2_waypoint_follower</exec_depend>
+  <exec_depend>nav2_velocity_smoother</exec_depend>
+  <exec_depend>nav2_collision_monitor</exec_depend>
+  <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <exec_depend>opennav_docking</exec_depend>
+
+  <!-- Visualization -->
+  <exec_depend>rviz2</exec_depend>
+  <exec_depend>nav2_rviz_plugins</exec_depend>
+
+  <!-- Semantic layer -->
+  <exec_depend>semantic_map_manager</exec_depend>
+  <exec_depend>knowledge_graph_db</exec_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>
