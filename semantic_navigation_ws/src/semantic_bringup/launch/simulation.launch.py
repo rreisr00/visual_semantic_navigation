@@ -27,9 +27,13 @@ from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
+    ExecuteProcess,
     IncludeLaunchDescription,
+    RegisterEventHandler,
     SetEnvironmentVariable,
+    TimerAction,
 )
+from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -147,6 +151,28 @@ def generate_launch_description() -> LaunchDescription:
             )
         ),
         launch_arguments={"x_pose": "0.0", "y_pose": "0.0"}.items(),
+    )
+
+    # Reset the robot pose inside Gazebo to (0, 0) after spawning.
+    # Guards against a stale Gazebo session where the model is at its
+    # previous position while AMCL re-initialises at the origin.
+    reset_robot_pose = TimerAction(
+        period=3.0,
+        actions=[
+            ExecuteProcess(
+                cmd=[
+                    "gz", "service",
+                    "-s", "/world/semantic_test/set_pose",
+                    "--reqtype", "gz.msgs.Pose",
+                    "--reptype", "gz.msgs.Boolean",
+                    "--timeout", "2000",
+                    "--req",
+                    "name: 'waffle' position: {x: 0.0 y: 0.0 z: 0.01}"
+                    " orientation: {w: 1.0}",
+                ],
+                output="screen",
+            )
+        ],
     )
 
     # ------------------------------------------------------------------ #
@@ -384,6 +410,7 @@ def generate_launch_description() -> LaunchDescription:
         gazebo,
         robot_state_publisher,
         spawn_turtlebot3,
+        reset_robot_pose,
         # 2. Localization
         map_server,
         amcl,

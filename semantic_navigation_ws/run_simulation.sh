@@ -77,6 +77,22 @@ source "$WS_SETUP"
 set -u
 ok "Overlay del workspace cargado."
 
+# ── Kill lingering Gazebo processes ───────────────────────────────────────────
+# Ctrl+C on the launch often leaves the Gazebo GUI/server alive.
+# A stale Gazebo leaves the robot at its last position, causing an AMCL mismatch.
+echo -e "\n${BOLD}━━━  GAZEBO CLEANUP  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+if pgrep -fa "gz sim|gzserver|ruby.*gz" | grep -v grep > /dev/null 2>&1; then
+    warn "Gazebo process detected — killing for a clean start."
+    pkill -SIGTERM -f "gz sim" 2>/dev/null || true
+    pkill -SIGTERM -f "gzserver"  2>/dev/null || true
+    sleep 1
+    pkill -SIGKILL -f "gz sim" 2>/dev/null || true
+    pkill -SIGKILL -f "gzserver"  2>/dev/null || true
+    ok "Gazebo cleared."
+else
+    ok "No stale Gazebo process found."
+fi
+
 # ── Launch ────────────────────────────────────────────────────────────────────
 echo -e "\n${BOLD}━━━  ROS 2 LAUNCH  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 info "Lanzando semantic_bringup simulation.launch.py ${LAUNCH_ARGS[*]+"con args: ${LAUNCH_ARGS[*]}"}"
