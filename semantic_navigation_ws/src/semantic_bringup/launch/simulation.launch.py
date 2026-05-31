@@ -50,6 +50,7 @@ def generate_launch_description() -> LaunchDescription:
     _bringup_share = get_package_share_directory("semantic_bringup")
     _aws_share     = get_package_share_directory("aws_robomaker_small_house_world")
     _smm_share     = get_package_share_directory("semantic_map_manager")
+    _svr_share     = get_package_share_directory("semantic_vision_ros")
 
     _params_file = os.path.join(_bringup_share, "config", "nav2_params.yaml")
     _rviz_config = os.path.join(_bringup_share, "config", "rviz_config.rviz")
@@ -337,7 +338,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     # ------------------------------------------------------------------ #
-    # 6. Semantic map manager – ML venv handling
+    # 6. Semantic layer – ML venv handling
     #    share path: .../install/<pkg>/share/<pkg>
     #    5 × dirname  →  project root (.../visual_semantic_navigation/)
     # ------------------------------------------------------------------ #
@@ -352,14 +353,28 @@ def generate_launch_description() -> LaunchDescription:
     }
 
     retrieval_config = os.path.join(_smm_share, "config", "retrieval_config.yaml")
+    vision_config    = os.path.join(_svr_share, "config", "vision_config.yaml")
 
+    # visual_encoder is a lifecycle node managed by lifecycle_manager_vision.
     visual_encoder_node = Node(
-        package="semantic_map_manager",
+        package="semantic_vision_ros",
         executable="visual_encoder",
         name="visual_encoder",
-        parameters=[retrieval_config, {"use_sim_time": use_sim_time}],
+        parameters=[vision_config, {"use_sim_time": use_sim_time}],
         additional_env=_extra_env,
         output="screen",
+    )
+
+    lifecycle_manager_vision = Node(
+        package="nav2_lifecycle_manager",
+        executable="lifecycle_manager",
+        name="lifecycle_manager_vision",
+        output="screen",
+        parameters=[{
+            "use_sim_time": use_sim_time,
+            "autostart":    True,
+            "node_names":   ["visual_encoder"],
+        }],
     )
 
     kg_manager_node = Node(
@@ -432,6 +447,7 @@ def generate_launch_description() -> LaunchDescription:
         # 5. Semantic layer
         knowledge_graph_db_node,
         visual_encoder_node,
+        lifecycle_manager_vision,
         kg_manager_node,
         orchestrator_node,
         eval_node,

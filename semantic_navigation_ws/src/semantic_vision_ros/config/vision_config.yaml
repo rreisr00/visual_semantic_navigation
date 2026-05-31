@@ -1,0 +1,14 @@
+visual_encoder:
+  ros__parameters:
+    # "siglip_pure"  → embedding only (no YOLO, lighter, faster)
+    # "siglip_yolo"  → embedding + object detection
+    retrieval_mode: "siglip_yolo"
+
+    # HuggingFace model ID or local path
+    siglip_model_id: "google/siglip-base-patch16-224"
+
+    # Path to YOLOv8 weights (used only in siglip_yolo mode)
+    yolo_model_path: "yolov8n.pt"
+
+    # Minimum YOLO detection confidence [0.0, 1.0]
+    yolo_confidence_threshold: 0.4

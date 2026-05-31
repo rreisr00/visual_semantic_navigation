@@ -26,7 +26,6 @@ setup(
             "waypoint_capture = semantic_map_manager.waypoint_capture:main",
             "semantic_navigator = semantic_map_manager.semantic_navigator:main",
             "test_integration = semantic_map_manager.test_integration:main",
-            "visual_encoder = semantic_map_manager.visual_encoder_node:main",
             "kg_manager = semantic_map_manager.kg_manager_node:main",
             "semantic_orchestrator = semantic_map_manager.semantic_orchestrator_node:main",
             "evaluation_node = semantic_map_manager.evaluation_node:main",

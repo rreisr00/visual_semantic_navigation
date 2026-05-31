@@ -40,6 +40,8 @@
   <exec_depend>nav2_rviz_plugins</exec_depend>
 
   <!-- Semantic layer -->
+  <exec_depend>semantic_vision_core</exec_depend>
+  <exec_depend>semantic_vision_ros</exec_depend>
   <exec_depend>semantic_map_manager</exec_depend>
   <exec_depend>knowledge_graph_db</exec_depend>
 
