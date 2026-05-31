@@ -81,12 +81,12 @@ def _stub_nav2() -> None:
 
 def _stub_interfaces() -> None:
     for pkg in [
-        "semantic_map_manager_interfaces",
-        "semantic_map_manager_interfaces.srv",
+        "semantic_interfaces",
+        "semantic_interfaces.srv",
     ]:
         _make_stub_module(pkg)
 
-    import semantic_map_manager_interfaces.srv as srv
+    import semantic_interfaces.srv as srv
     srv.GetEmbedding = object  # type: ignore[attr-defined]
 
 

@@ -22,7 +22,7 @@ from geometry_msgs.msg import PoseStamped, Quaternion
 
 from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
 
-from semantic_map_manager_interfaces.srv import GetEmbedding
+from semantic_interfaces.srv import GetEmbedding
 from semantic_map_manager.knowledge_graph_client import KnowledgeGraphClient
 from semantic_map_manager.utils import cosine_similarity
 

@@ -1,0 +1,7 @@
+string node_id
+geometry_msgs/PoseStamped pose
+float32[] visual_embedding
+string[] detected_objects
+---
+bool success
+string message

@@ -1,0 +1,6 @@
+sensor_msgs/Image image
+---
+float32[] visual_embedding
+string[] detected_objects
+bool success
+string message

@@ -2,7 +2,7 @@
 """SigLIP 2 AI Inference Node.
 
 Loads the google/siglip-base-patch16-224 model once at startup and exposes a
-``GetEmbedding`` service (semantic_map_manager_interfaces/srv/GetEmbedding)
+``GetEmbedding`` service (semantic_interfaces/srv/GetEmbedding)
 that returns a float32 embedding vector for a given image or text.
 
 Service API
@@ -22,7 +22,7 @@ import numpy as np
 import rclpy
 from rclpy.node import Node
 
-from semantic_map_manager_interfaces.srv import GetEmbedding
+from semantic_interfaces.srv import GetEmbedding
 
 # Optional heavy imports – handled gracefully so the node can still start even
 # when running in a minimal CI environment without GPU/internet access.

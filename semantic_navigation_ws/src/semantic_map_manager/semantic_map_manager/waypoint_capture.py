@@ -23,7 +23,7 @@ from geometry_msgs.msg import PoseStamped
 
 from tf2_ros import Buffer, TransformListener, LookupException, ConnectivityException, ExtrapolationException
 
-from semantic_map_manager_interfaces.srv import GetEmbedding
+from semantic_interfaces.srv import GetEmbedding
 from semantic_map_manager.knowledge_graph_client import KnowledgeGraphClient
 
 
