@@ -5,6 +5,18 @@
 #
 # Note: ROS 2 packages (rclpy, sensor_msgs, cv_bridge, nav2_simple_commander,
 # tf2_ros) are installed via apt / colcon build and are NOT listed here.
+#
+# ABI constraint: the system cv_bridge (ROS Jazzy) is compiled against NumPy 1.x.
+# Loading it with NumPy 2.x causes an ABI crash at import time.
+# Constraint chain:
+#   numpy<2            ← required by system cv_bridge (ROS Jazzy, compiled against NumPy 1.x)
+#   opencv-python<4.11 ← opencv-python>=4.11 requires numpy>=2, incompatible with above
+
+# NumPy – must stay on the 1.x ABI for cv_bridge compatibility
+numpy>=1.24.0,<2
+
+# Image processing – 4.11+ requires numpy>=2, so cap at 4.10.x
+opencv-python>=4.7.0,<4.11
 
 # Deep learning inference
 torch>=2.0.0
@@ -12,15 +24,8 @@ transformers>=4.45.0
 # Pillow is pulled in by transformers but listed explicitly for clarity
 Pillow>=9.0.0
 
-# Image processing (ROS ↔ OpenCV bridge)
-opencv-python>=4.7.0
-
-# Similarity computation (optional – numpy is used for cosine similarity in
-# semantic_navigator.py, but scipy is available for other metrics)
+# Similarity computation
 scipy>=1.10.0
-
-# Dependency of transformers
-numpy>=1.24.0
 
 matplotlib>=3.10.8
 
