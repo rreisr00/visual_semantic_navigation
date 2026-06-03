@@ -1,0 +1,7 @@
+knowledge_graph_bridge:
+  ros__parameters:
+    # Absolute path to the SQLite database file.
+    # Tilde (~) and environment variables ($HOME, $ROS_HOME, etc.) are expanded
+    # at runtime by the node.  The directory is created automatically if it does
+    # not exist.
+    db_file_path: "~/.ros/semantic_maps/knowledge_graph.db"

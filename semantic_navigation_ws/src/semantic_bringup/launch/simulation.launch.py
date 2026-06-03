@@ -51,6 +51,7 @@ def generate_launch_description() -> LaunchDescription:
     _aws_share     = get_package_share_directory("aws_robomaker_small_house_world")
     _smm_share     = get_package_share_directory("semantic_map_manager")
     _svr_share     = get_package_share_directory("semantic_vision_ros")
+    _kgr_share     = get_package_share_directory("knowledge_graph_ros")
 
     _params_file = os.path.join(_bringup_share, "config", "nav2_params.yaml")
     _rviz_config = os.path.join(_bringup_share, "config", "rviz_config.rviz")
@@ -334,7 +335,7 @@ def generate_launch_description() -> LaunchDescription:
         name="rviz2",
         output="screen",
         arguments=["-d", _rviz_config],
-        parameters=[{"use_sim_time": use_sim_time}],
+        parameters=[{"use_sim_time": use_sim_time}],    
     )
 
     # ------------------------------------------------------------------ #
@@ -354,6 +355,7 @@ def generate_launch_description() -> LaunchDescription:
 
     retrieval_config = os.path.join(_smm_share, "config", "retrieval_config.yaml")
     vision_config    = os.path.join(_svr_share, "config", "vision_config.yaml")
+    kg_config        = os.path.join(_kgr_share, "config", "kg_config.yaml")
 
     # visual_encoder is a lifecycle node managed by lifecycle_manager_vision.
     visual_encoder_node = Node(
@@ -377,13 +379,27 @@ def generate_launch_description() -> LaunchDescription:
         }],
     )
 
-    kg_manager_node = Node(
-        package="semantic_map_manager",
-        executable="kg_manager",
-        name="kg_manager",
-        parameters=[retrieval_config, {"use_sim_time": use_sim_time}],
-        additional_env=_extra_env,
+    # knowledge_graph_bridge is a lifecycle node: it owns both the /store_waypoint
+    # service and the SQLite persistence layer, replacing the old kg_manager_node
+    # + knowledge_graph_db_node pair.
+    kg_bridge_node = Node(
+        package="knowledge_graph_ros",
+        executable="knowledge_graph_bridge",
+        name="knowledge_graph_bridge",
+        parameters=[kg_config, {"use_sim_time": use_sim_time}],
         output="screen",
+    )
+
+    lifecycle_manager_kg = Node(
+        package="nav2_lifecycle_manager",
+        executable="lifecycle_manager",
+        name="lifecycle_manager_kg",
+        output="screen",
+        parameters=[{
+            "use_sim_time": use_sim_time,
+            "autostart":    True,
+            "node_names":   ["knowledge_graph_bridge"],
+        }],
     )
 
     orchestrator_node = Node(
@@ -400,13 +416,6 @@ def generate_launch_description() -> LaunchDescription:
         executable="evaluation_node",
         name="evaluation_node",
         parameters=[{"use_sim_time": use_sim_time}],
-        output="screen",
-    )
-
-    knowledge_graph_db_node = Node(
-        package="knowledge_graph_db",
-        executable="knowledge_graph_db_node",
-        name="knowledge_graph_db",
         output="screen",
     )
 
@@ -445,10 +454,9 @@ def generate_launch_description() -> LaunchDescription:
         # 4. Visualization
         rviz,
         # 5. Semantic layer
-        knowledge_graph_db_node,
         visual_encoder_node,
         lifecycle_manager_vision,
-        kg_manager_node,
-        orchestrator_node,
+        kg_bridge_node,
+        lifecycle_manager_kg,                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           orchestrator_node,
         eval_node,
     ])
