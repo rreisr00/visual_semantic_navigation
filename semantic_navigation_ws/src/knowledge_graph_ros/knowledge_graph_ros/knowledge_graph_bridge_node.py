@@ -35,14 +35,18 @@ from typing import List, Optional
 
 import rclpy
 import rclpy.executors
+from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.lifecycle import LifecycleNode, TransitionCallbackReturn, State
+
+from geometry_msgs.msg import PoseStamped
 
 from knowledge_graph import KnowledgeGraph
 from knowledge_graph.graph import Node, Edge
 from knowledge_graph_msgs.msg import Node as NodeMsg, Edge as EdgeMsg
 from knowledge_graph_msgs.msg import Content, Property
 
-from semantic_interfaces.srv import StoreWaypoint
+from semantic_interfaces.msg import WaypointInfo
+from semantic_interfaces.srv import StoreWaypoint, GetWaypoints
 
 
 class KnowledgeGraphBridgeNode(LifecycleNode):
@@ -61,6 +65,11 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
         self._conn: Optional[sqlite3.Connection] = None
         self._db_lock = threading.Lock()
         self._store_srv = None
+        self._get_waypoints_srv = None
+
+        # Serialise all graph/SQLite access through one callback group so the
+        # store and query services never run concurrently against the graph.
+        self._graph_cbg = MutuallyExclusiveCallbackGroup()
 
         # Saved originals so on_cleanup can fully restore the graph singleton.
         self._orig_update_node = None
@@ -110,15 +119,25 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
 
     def on_activate(self, state: State) -> TransitionCallbackReturn:
         self._store_srv = self.create_service(
-            StoreWaypoint, "store_waypoint", self._handle_store_waypoint
+            StoreWaypoint, "store_waypoint", self._handle_store_waypoint,
+            callback_group=self._graph_cbg,
         )
-        self.get_logger().info("Activated – /store_waypoint service ready.")
+        self._get_waypoints_srv = self.create_service(
+            GetWaypoints, "get_waypoints", self._handle_get_waypoints,
+            callback_group=self._graph_cbg,
+        )
+        self.get_logger().info(
+            "Activated – /store_waypoint and /get_waypoints services ready."
+        )
         return super().on_activate(state)
 
     def on_deactivate(self, state: State) -> TransitionCallbackReturn:
         if self._store_srv is not None:
             self.destroy_service(self._store_srv)
             self._store_srv = None
+        if self._get_waypoints_srv is not None:
+            self.destroy_service(self._get_waypoints_srv)
+            self._get_waypoints_srv = None
         return super().on_deactivate(state)
 
     def on_cleanup(self, state: State) -> TransitionCallbackReturn:
@@ -189,6 +208,64 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
             if not self._graph.has_edge("CONTAINS", waypoint_id, obj_id):
                 edge = self._graph.create_edge("CONTAINS", waypoint_id, obj_id)
                 self._graph.update_edge(edge)
+
+    # ------------------------------------------------------------------ #
+    # /get_waypoints service callback
+    # ------------------------------------------------------------------ #
+
+    def _handle_get_waypoints(
+        self,
+        request: GetWaypoints.Request,
+        response: GetWaypoints.Response,
+    ) -> GetWaypoints.Response:
+        class_filter = request.class_filter or "waypoint"
+        try:
+            for node in self._graph.get_nodes():
+                if node.get_type() != class_filter:
+                    continue
+                response.waypoints.append(self._node_to_waypoint_info(node))
+            response.success = True
+            response.message = "OK"
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().error(f"GetWaypoints failed: {exc}")
+            response.waypoints = []
+            response.success = False
+            response.message = str(exc)
+        return response
+
+    def _node_to_waypoint_info(self, node: Node) -> WaypointInfo:
+        info = WaypointInfo()
+        info.node_id = node.get_name()
+
+        pose = PoseStamped()
+        pose.header.frame_id = "map"
+        pose.pose.position.x = float(_prop(node, "pose_x", 0.0))
+        pose.pose.position.y = float(_prop(node, "pose_y", 0.0))
+        pose.pose.position.z = float(_prop(node, "pose_z", 0.0))
+        pose.pose.orientation.x = float(_prop(node, "orient_x", 0.0))
+        pose.pose.orientation.y = float(_prop(node, "orient_y", 0.0))
+        pose.pose.orientation.z = float(_prop(node, "orient_z", 0.0))
+        pose.pose.orientation.w = float(_prop(node, "orient_w", 1.0))
+        info.pose = pose
+
+        # visual_embedding stored natively as a VFLOAT vector → list[float].
+        embedding = _prop(node, "visual_embedding", [])
+        info.visual_embedding = [float(v) for v in embedding] if embedding else []
+
+        # Reconstruct detected objects from CONTAINS edges → object nodes' labels.
+        info.detected_objects = self._collect_object_labels(node.get_name())
+        return info
+
+    def _collect_object_labels(self, waypoint_id: str) -> list[str]:
+        labels: list[str] = []
+        for edge in self._graph.get_edges_from_node_by_type("CONTAINS", waypoint_id):
+            obj_id = edge.get_target_node()
+            if not self._graph.has_node(obj_id):
+                continue
+            label = _prop(self._graph.get_node(obj_id), "label", "")
+            if label:
+                labels.append(str(label))
+        return labels
 
     # ------------------------------------------------------------------ #
     # Graph method patching
@@ -379,6 +456,17 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
                 pass
             finally:
                 self._conn = None
+
+
+# ------------------------------------------------------------------ #
+# Graph node helpers
+# ------------------------------------------------------------------ #
+
+def _prop(node: Node, key: str, default):
+    """Read a node property, returning ``default`` when it is absent."""
+    if node.has_property(key):
+        return node.get_property(key)
+    return default
 
 
 # ------------------------------------------------------------------ #

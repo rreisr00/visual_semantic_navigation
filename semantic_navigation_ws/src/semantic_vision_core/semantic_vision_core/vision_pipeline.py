@@ -45,6 +45,7 @@ class SemanticVisionPipeline:
         siglip_model_id: str = "google/siglip-base-patch16-224",
         yolo_model_path: str = "yolov8n.pt",
         yolo_confidence_threshold: float = 0.4,
+        device: str | None = None,
     ) -> None:
         if retrieval_mode not in self.SUPPORTED_MODES:
             raise ValueError(
@@ -60,6 +61,7 @@ class SemanticVisionPipeline:
         self._mode = retrieval_mode
         self._yolo_conf = float(yolo_confidence_threshold)
         self._yolo_model = None
+        self._forced_device = device
 
         self._load_siglip(siglip_model_id)
         if retrieval_mode == "siglip_yolo":
@@ -71,6 +73,11 @@ class SemanticVisionPipeline:
     def mode(self) -> str:
         """Active retrieval mode."""
         return self._mode
+
+    @property
+    def device(self) -> str:
+        """Torch device the SigLIP model is loaded on."""
+        return self._device
 
     def process_image(
         self, image_rgb: np.ndarray
@@ -87,11 +94,53 @@ class SemanticVisionPipeline:
         Raises:
             RuntimeError: On inference failure.
         """
-        embedding = self._embed(image_rgb)
+        embedding = self.embed_image(image_rgb)
         objects: list[str] = []
         if self._mode == "siglip_yolo" and self._yolo_model is not None:
             objects = self._detect(image_rgb)
         return embedding, objects
+
+    def embed_image(self, image_rgb: np.ndarray) -> np.ndarray:
+        """L2-normalised SigLIP image embedding for one RGB frame.
+
+        Args:
+            image_rgb: uint8 array (H, W, 3) in **RGB** order.
+
+        Returns:
+            L2-normalised float32 vector.
+
+        Raises:
+            RuntimeError: On inference failure.
+        """
+        pil = PILImage.fromarray(image_rgb)
+        inputs = self._processor(images=pil, return_tensors="pt")
+        inputs = {k: v.to(self._device) for k, v in inputs.items()}
+        with torch.no_grad():
+            features = self._model.get_image_features(**inputs)
+        return self._normalise(features)
+
+    def embed_text(self, text: str) -> np.ndarray:
+        """L2-normalised SigLIP text embedding.
+
+        SigLIP shares the image/text embedding space, so cosine similarity
+        between this vector and stored waypoint image embeddings is meaningful.
+
+        Args:
+            text: Free-form query string.
+
+        Returns:
+            L2-normalised float32 vector.
+
+        Raises:
+            RuntimeError: On inference failure.
+        """
+        inputs = self._processor(
+            text=[text], padding="max_length", return_tensors="pt"
+        )
+        inputs = {k: v.to(self._device) for k, v in inputs.items()}
+        with torch.no_grad():
+            features = self._model.get_text_features(**inputs)
+        return self._normalise(features)
 
     # ── private ────────────────────────────────────────────────────────────── #
 
@@ -99,7 +148,10 @@ class SemanticVisionPipeline:
         self._processor = AutoProcessor.from_pretrained(model_id)
         self._model = AutoModel.from_pretrained(model_id)
         self._model.eval()
-        self._device = "cuda" if torch.cuda.is_available() else "cpu"
+        if self._forced_device is not None:
+            self._device = self._forced_device
+        else:
+            self._device = "cuda" if torch.cuda.is_available() else "cpu"
         self._model.to(self._device)
 
     def _load_yolo(self, model_path: str) -> None:
@@ -111,12 +163,8 @@ class SemanticVisionPipeline:
             ) from exc
         self._yolo_model = YOLO(model_path)
 
-    def _embed(self, image_rgb: np.ndarray) -> np.ndarray:
-        pil = PILImage.fromarray(image_rgb)
-        inputs = self._processor(images=pil, return_tensors="pt")
-        inputs = {k: v.to(self._device) for k, v in inputs.items()}
-        with torch.no_grad():
-            features = self._model.get_image_features(**inputs)
+    @staticmethod
+    def _normalise(features) -> np.ndarray:
         vec = features.squeeze(0).cpu().numpy().astype(np.float32)
         return vec / (np.linalg.norm(vec) + 1e-8)
 

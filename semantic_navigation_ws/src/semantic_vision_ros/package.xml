@@ -16,6 +16,8 @@
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>diagnostic_updater</exec_depend>
+  <exec_depend>diagnostic_msgs</exec_depend>
   <exec_depend>semantic_interfaces</exec_depend>
   <exec_depend>semantic_vision_core</exec_depend>
 
