@@ -34,12 +34,15 @@ NAV_NODES=(
 
 SEMANTIC_NODES=(
     /visual_encoder
-    /kg_manager
+    /lifecycle_manager_vision
+    /knowledge_graph_bridge
+    /lifecycle_manager_kg
     /semantic_orchestrator
     /evaluation_node
-    /knowledge_graph_db
 )
 
+# Nodes whose lifecycle state is queried individually.
+# Nav2 managed nodes + the two semantic lifecycle nodes.
 LIFECYCLE_NODES=(
     map_server
     amcl
@@ -53,6 +56,8 @@ LIFECYCLE_NODES=(
     velocity_smoother
     collision_monitor
     docking_server
+    visual_encoder
+    knowledge_graph_bridge
 )
 
 KEY_TOPICS=(
@@ -62,6 +67,7 @@ KEY_TOPICS=(
     /tf
     /amcl_pose
     /cmd_vel
+    /camera/image_raw
     /local_costmap/costmap
     /plan
 )
@@ -71,9 +77,14 @@ KEY_ACTIONS=(
     /navigate_through_poses
 )
 
+# ROS 2 services exposed by the semantic layer.
+KEY_SERVICES=(
+    /get_visual_features
+    /store_waypoint
+)
+
 # ── Helpers ───────────────────────────────────────────────────────────────────
 status_icon() {
-    # $1 = condition ("ok" | anything else → fail)
     if [[ "$1" == ok ]]; then
         echo -e "${GREEN}✓${RESET}"
     else
@@ -86,11 +97,13 @@ check_once() {
     local ts
     ts=$(date '+%H:%M:%S')
 
-    # Gather runtime data (one ROS call each)
-    local running_nodes all_topics all_actions
-    running_nodes=$(ros2 node list 2>/dev/null || true)
-    all_topics=$(ros2 topic list 2>/dev/null || true)
-    all_actions=$(ros2 action list 2>/dev/null || true)
+    # Gather runtime data (one ROS call each, short timeout so the script
+    # doesn't block when the stack is down).
+    local running_nodes all_topics all_actions all_services
+    running_nodes=$(timeout 4s ros2 node list   2>/dev/null || true)
+    all_topics=$(   timeout 4s ros2 topic list  2>/dev/null || true)
+    all_actions=$(  timeout 4s ros2 action list 2>/dev/null || true)
+    all_services=$( timeout 4s ros2 service list 2>/dev/null || true)
 
     local nav_ok=0 nav_fail=0 sem_ok=0 sem_fail=0
 
@@ -121,24 +134,36 @@ check_once() {
     done
 
     # ── Lifecycle states ────────────────────────────────────────────────────── #
+    # Fire all lifecycle queries in parallel so total wait = max(individual)
+    # instead of sum(individual). Only query nodes that are actually running.
     echo ""
     echo -e "${BOLD}━━━  Lifecycle States  $(printf '%.0s━' {1..35})  ━━━${RESET}"
+    local lc_tmpdir
+    lc_tmpdir=$(mktemp -d)
     for node in "${LIFECYCLE_NODES[@]}"; do
-        local raw state
-        raw=$(ros2 lifecycle get "/${node}" 2>/dev/null || true)
-        # output format: "- /<node> [<id>]: <state>"
-        # Jazzy format: "active [3]"  (label first, id in brackets after)
-        state=$(echo "$raw" | grep -oP '^\w+' | head -1)
+        if echo "$running_nodes" | grep -qx "/${node}"; then
+            ( timeout 5s ros2 lifecycle get "/${node}" 2>/dev/null \
+              | grep -oP '^\w+' | head -1 \
+              > "${lc_tmpdir}/${node}" ) &
+        else
+            echo "unreachable" > "${lc_tmpdir}/${node}"
+        fi
+    done
+    wait   # collect all parallel queries before printing
+    for node in "${LIFECYCLE_NODES[@]}"; do
+        local state
+        state=$(cat "${lc_tmpdir}/${node}" 2>/dev/null || true)
         state="${state:-unreachable}"
         case "$state" in
             active)
-                echo -e "  ${GREEN}active     ${RESET} /${node}" ;;
+                echo -e "  ${GREEN}active      ${RESET} /${node}" ;;
             configured|inactive)
-                echo -e "  ${YELLOW}${state}  ${RESET} /${node}" ;;
+                echo -e "  ${YELLOW}${state}   ${RESET} /${node}" ;;
             *)
-                echo -e "  ${RED}${state}  ${RESET} /${node}" ;;
+                echo -e "  ${RED}${state}   ${RESET} /${node}" ;;
         esac
     done
+    rm -rf "$lc_tmpdir"
 
     # ── Key topics ─────────────────────────────────────────────────────────── #
     echo ""
@@ -162,14 +187,34 @@ check_once() {
         fi
     done
 
+    # ── Semantic services ──────────────────────────────────────────────────── #
+    echo ""
+    echo -e "${BOLD}━━━  Semantic Services  $(printf '%.0s━' {1..34})  ━━━${RESET}"
+    for svc in "${KEY_SERVICES[@]}"; do
+        if echo "$all_services" | grep -q "^${svc}"; then
+            echo -e "  $(status_icon ok) $svc"
+        else
+            echo -e "  $(status_icon fail) $svc"
+        fi
+    done
+
     # ── TF tree ────────────────────────────────────────────────────────────── #
+    # Collect frame IDs from /tf (dynamic, 3 s window) and /tf_static (latched,
+    # one message) in parallel, then union the results.
+    # Avoids tf2_monitor whose output format is unreliable across distros.
     echo ""
     echo -e "${BOLD}━━━  TF Frames  $(printf '%.0s━' {1..42})  ━━━${RESET}"
     local key_frames=(map odom base_footprint base_link base_scan)
-    # Collect the TF frame list once (tf2_monitor --spin-time 1)
+    local tf_tmpdir
+    tf_tmpdir=$(mktemp -d)
+    timeout 3s ros2 topic echo /tf        2>/dev/null > "${tf_tmpdir}/tf.txt"        &
+    timeout 3s ros2 topic echo --once /tf_static 2>/dev/null > "${tf_tmpdir}/static.txt" &
+    wait
     local tf_frames
-    tf_frames=$(timeout 2s ros2 run tf2_ros tf2_monitor --spin-time 1 2>/dev/null \
-                | grep -oP 'Frame \K\S+(?= exists)' || true)
+    tf_frames=$(cat "${tf_tmpdir}"/*.txt 2>/dev/null \
+                | grep -oP "frame_id: '\K[^']+|child_frame_id: '\K[^']+" \
+                | sort -u || true)
+    rm -rf "$tf_tmpdir"
     for frame in "${key_frames[@]}"; do
         if echo "$tf_frames" | grep -qx "$frame"; then
             echo -e "  $(status_icon ok) $frame"
