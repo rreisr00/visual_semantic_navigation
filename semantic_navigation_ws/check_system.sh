@@ -34,9 +34,9 @@ NAV_NODES=(
 
 SEMANTIC_NODES=(
     /visual_encoder
-    /lifecycle_manager_vision
     /knowledge_graph_bridge
-    /lifecycle_manager_kg
+    /lifecycle_manager
+    /kg_manager
     /semantic_orchestrator
     /evaluation_node
 )
@@ -75,12 +75,16 @@ KEY_TOPICS=(
 KEY_ACTIONS=(
     /navigate_to_pose
     /navigate_through_poses
+    /capture_waypoint
+    /navigate_to_semantic_goal
 )
 
 # ROS 2 services exposed by the semantic layer.
 KEY_SERVICES=(
     /get_visual_features
+    /get_embedding
     /store_waypoint
+    /get_waypoints
 )
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
