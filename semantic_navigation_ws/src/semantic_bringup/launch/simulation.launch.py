@@ -49,7 +49,7 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------ #
     _bringup_share = get_package_share_directory("semantic_bringup")
     _aws_share     = get_package_share_directory("aws_robomaker_small_house_world")
-    _smm_share     = get_package_share_directory("semantic_map_manager")
+    _snr_share     = get_package_share_directory("semantic_navigation_ros")
     _svr_share     = get_package_share_directory("semantic_vision_ros")
     _kgr_share     = get_package_share_directory("knowledge_graph_ros")
 
@@ -344,7 +344,7 @@ def generate_launch_description() -> LaunchDescription:
     #    5 × dirname  →  project root (.../visual_semantic_navigation/)
     # ------------------------------------------------------------------ #
     _project_root = os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_smm_share))))
+        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_snr_share))))
     )
     _venv_site = os.path.join(
         _project_root, ".venv-1", "lib", "python3.12", "site-packages"
@@ -353,11 +353,13 @@ def generate_launch_description() -> LaunchDescription:
         "PYTHONPATH": _venv_site + ":" + os.environ.get("PYTHONPATH", "")
     }
 
-    retrieval_config = os.path.join(_smm_share, "config", "retrieval_config.yaml")
+    retrieval_config = os.path.join(_snr_share, "config", "retrieval_config.yaml")
     vision_config    = os.path.join(_svr_share, "config", "vision_config.yaml")
     kg_config        = os.path.join(_kgr_share, "config", "kg_config.yaml")
 
-    # visual_encoder is a lifecycle node managed by lifecycle_manager_vision.
+    # visual_encoder and knowledge_graph_bridge are lifecycle nodes driven to
+    # 'active' by our own semantic_navigation_ros lifecycle_manager, which also
+    # recovers them if they self-deactivate (e.g. visual_encoder after CUDA OOM).
     visual_encoder_node = Node(
         package="semantic_vision_ros",
         executable="visual_encoder",
@@ -367,21 +369,8 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
     )
 
-    lifecycle_manager_vision = Node(
-        package="nav2_lifecycle_manager",
-        executable="lifecycle_manager",
-        name="lifecycle_manager_vision",
-        output="screen",
-        parameters=[{
-            "use_sim_time": use_sim_time,
-            "autostart":    True,
-            "node_names":   ["visual_encoder"],
-        }],
-    )
-
-    # knowledge_graph_bridge is a lifecycle node: it owns both the /store_waypoint
-    # service and the SQLite persistence layer, replacing the old kg_manager_node
-    # + knowledge_graph_db_node pair.
+    # knowledge_graph_bridge owns both the /store_waypoint + /get_waypoints
+    # services and the SQLite persistence layer.
     kg_bridge_node = Node(
         package="knowledge_graph_ros",
         executable="knowledge_graph_bridge",
@@ -390,20 +379,27 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
     )
 
-    lifecycle_manager_kg = Node(
-        package="nav2_lifecycle_manager",
+    semantic_lifecycle_manager = Node(
+        package="semantic_navigation_ros",
         executable="lifecycle_manager",
-        name="lifecycle_manager_kg",
+        name="lifecycle_manager",
         output="screen",
         parameters=[{
-            "use_sim_time": use_sim_time,
-            "autostart":    True,
-            "node_names":   ["knowledge_graph_bridge"],
+            "use_sim_time":  use_sim_time,
+            "managed_nodes": ["visual_encoder", "knowledge_graph_bridge"],
         }],
     )
 
+    kg_manager_node = Node(
+        package="semantic_navigation_ros",
+        executable="kg_manager",
+        name="kg_manager",
+        parameters=[{"use_sim_time": use_sim_time}],
+        output="screen",
+    )
+
     orchestrator_node = Node(
-        package="semantic_map_manager",
+        package="semantic_navigation_ros",
         executable="semantic_orchestrator",
         name="semantic_orchestrator",
         parameters=[retrieval_config, {"use_sim_time": use_sim_time}],
@@ -412,7 +408,7 @@ def generate_launch_description() -> LaunchDescription:
     )
 
     eval_node = Node(
-        package="semantic_map_manager",
+        package="semantic_navigation_ros",
         executable="evaluation_node",
         name="evaluation_node",
         parameters=[{"use_sim_time": use_sim_time}],
@@ -455,8 +451,9 @@ def generate_launch_description() -> LaunchDescription:
         rviz,
         # 5. Semantic layer
         visual_encoder_node,
-        lifecycle_manager_vision,
         kg_bridge_node,
-        lifecycle_manager_kg,                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           orchestrator_node,
+        semantic_lifecycle_manager,
+        kg_manager_node,
+        orchestrator_node,
         eval_node,
     ])
