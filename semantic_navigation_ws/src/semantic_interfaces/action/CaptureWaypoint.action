@@ -1,0 +1,11 @@
+# Goal: capture the current pose + visual features as a semantic waypoint.
+string label            # Optional human label (may be empty).
+---
+# Result
+bool success
+string node_id
+string message
+---
+# Feedback: capture-pipeline stage
+# one of: "got_image", "got_pose", "encoded", "stored"
+string stage

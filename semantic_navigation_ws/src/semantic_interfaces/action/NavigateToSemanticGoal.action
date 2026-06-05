@@ -1,0 +1,16 @@
+# Goal: retrieve the best-matching waypoint for a text or image query and
+# navigate the robot to it.
+string query_text                 # Used when use_image is false.
+sensor_msgs/Image query_image     # Used when use_image is true.
+bool use_image
+---
+# Result
+bool success
+string matched_node_id
+float32 score
+string message
+---
+# Feedback
+# stage one of: "embedding", "ranking", "navigating"
+string stage
+float32 distance_remaining
