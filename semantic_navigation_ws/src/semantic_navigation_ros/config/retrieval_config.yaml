@@ -1,0 +1,5 @@
+semantic_orchestrator:
+  ros__parameters:
+    retrieval_mode: "siglip_yolo"        # "siglip_pure" | "siglip_yolo"
+    hybrid_embedding_weight: 0.7         # cosine-similarity weight (siglip_yolo)
+    hybrid_object_weight: 0.3            # jaccard weight (siglip_yolo)
