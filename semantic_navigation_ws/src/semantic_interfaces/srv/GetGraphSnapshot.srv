@@ -1,0 +1,10 @@
+# Request: a full read-only snapshot of the knowledge graph.
+# (empty — the whole graph is returned)
+---
+# Response
+int32 total_nodes              # Count over every node type (waypoints + objects + ...).
+int32 total_edges              # Count over every edge.
+WaypointInfo[] waypoints       # Pose-bearing waypoint nodes (id + pose + embedding + objects).
+GraphEdge[] edges              # Connectivity (source/target/type) for the LINE_LIST view.
+bool success
+string message

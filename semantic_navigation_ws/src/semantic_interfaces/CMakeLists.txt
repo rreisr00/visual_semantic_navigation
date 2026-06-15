@@ -13,10 +13,12 @@ find_package(action_msgs REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/WaypointInfo.msg"
+  "msg/GraphEdge.msg"
   "srv/GetEmbedding.srv"
   "srv/GetVisualFeatures.srv"
   "srv/StoreWaypoint.srv"
   "srv/GetWaypoints.srv"
+  "srv/GetGraphSnapshot.srv"
   "action/CaptureWaypoint.action"
   "action/NavigateToSemanticGoal.action"
   DEPENDENCIES sensor_msgs geometry_msgs action_msgs

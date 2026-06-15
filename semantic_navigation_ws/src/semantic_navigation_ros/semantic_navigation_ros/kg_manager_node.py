@@ -176,7 +176,11 @@ class WaypointCaptureNode(Node):
             return self._cancelled(goal_handle, result, sm.reason)
 
         # Step 4 – store
-        waypoint_id = f"waypoint_{time.time_ns()}"
+        # Use the human label as the node_id when provided (e.g. "cocina_01"),
+        # so downstream room-level metrics can derive the room via room_key().
+        # Fall back to a unique timestamped id when no label is given.
+        label = goal_handle.request.label.strip()
+        waypoint_id = label if label else f"waypoint_{time.time_ns()}"
         store_req = self._build_store_req(waypoint_id, pose, features)
         store = self._call_service(self._store_client, store_req)
         if store is None or not store.success:

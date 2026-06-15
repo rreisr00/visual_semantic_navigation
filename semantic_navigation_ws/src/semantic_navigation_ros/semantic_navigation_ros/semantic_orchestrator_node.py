@@ -20,6 +20,7 @@ inside a callback and no ``while goToPose`` busy-wait.
 
 from __future__ import annotations
 
+import math
 import threading
 import time
 
@@ -101,17 +102,24 @@ class SemanticOrchestratorNode(Node):
 
     def _execute(self, goal_handle) -> NavigateToSemanticGoal.Result:
         result = NavigateToSemanticGoal.Result()
+        # Phase latencies default to NaN so an early abort reports "not measured"
+        # rather than a misleading 0.0.
+        result.visual_extraction_s = math.nan
+        result.retrieval_s = math.nan
+        result.navigation_s = math.nan
         goal = goal_handle.request
-        t_start = time.perf_counter()
 
-        # Step 1 – embedding
+        # Step 1 – embedding (visual_extraction phase)
         self._feedback(goal_handle, "embedding")
+        t_embed = time.perf_counter()
         query_embedding, query_objects = self._embed_query(goal)
+        result.visual_extraction_s = time.perf_counter() - t_embed
         if query_embedding is None:
             return self._abort(goal_handle, result, "query embedding failed")
 
-        # Step 2 – retrieve + rank
+        # Step 2 – retrieve + rank (retrieval phase)
         self._feedback(goal_handle, "ranking")
+        t_retrieval = time.perf_counter()
         waypoints = self._fetch_waypoints()
         if waypoints is None:
             return self._abort(goal_handle, result, "get_waypoints failed")
@@ -124,30 +132,40 @@ class SemanticOrchestratorNode(Node):
         )
         if not ranked:
             return self._abort(goal_handle, result, "no rankable waypoints")
+        result.retrieval_s = time.perf_counter() - t_retrieval
         best = ranked[0]
+        result.matched_node_id = best.waypoint.node_id
+        result.score = float(best.score)
         self.get_logger().info(
             f"Best waypoint: {best.waypoint.node_id} (score={best.score:.4f})"
         )
 
-        # Evaluation taps: total retrieval latency + chosen node.
-        self._latency_pub.publish(Float64(data=time.perf_counter() - t_start))
+        # Evaluation taps: total decision latency + chosen node.
+        self._latency_pub.publish(
+            Float64(data=result.visual_extraction_s + result.retrieval_s)
+        )
         self._result_pub.publish(String(data=best.waypoint.node_id))
 
-        # Step 3 – navigate
+        # Decision-only mode: stop after ranking. navigation_s stays NaN.
+        if goal.decision_only:
+            goal_handle.succeed()
+            result.success = True
+            result.message = "OK (decision only)"
+            return result
+
+        # Step 3 – navigate (navigation phase)
         self._feedback(goal_handle, "navigating")
+        t_nav = time.perf_counter()
         ok = self._navigate(goal_handle, best.waypoint)
+        result.navigation_s = time.perf_counter() - t_nav
         if not ok:
             result.success = False
-            result.matched_node_id = best.waypoint.node_id
-            result.score = float(best.score)
             result.message = "navigation failed"
             goal_handle.abort()
             return result
 
         goal_handle.succeed()
         result.success = True
-        result.matched_node_id = best.waypoint.node_id
-        result.score = float(best.score)
         result.message = "OK"
         return result
 

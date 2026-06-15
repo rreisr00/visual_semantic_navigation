@@ -1,0 +1,54 @@
+# Parameters for the semantic_evaluation nodes. Nothing in the nodes is
+# hardcoded — every name, path, period, scale and threshold lives here.
+
+evaluation_collector:
+  ros__parameters:
+    # Integration points (real names detected in PASO 0).
+    action_name: "navigate_to_semantic_goal"     # SemanticOrchestrator action
+    snapshot_service_name: "get_graph_snapshot"  # KnowledgeGraphBridge service
+
+    # Campaign I/O.
+    test_suite_path: ""                           # set to an absolute test_suite.yaml
+    output_dir: "~/ros2_evaluation_results"
+    output_filename_prefix: "evaluation"
+
+    # Decision-only (dry_run): orchestrator ranks but does not drive Nav2;
+    # navigation_s comes back as NaN.
+    decision_only: false
+
+    # Room-level accuracy: cocina_01 -> cocina, sala_estar_02 -> sala_estar.
+    room_separator: "_"
+    room_strategy: "strip_last"                   # "strip_last" | "first_token"
+
+    # Timeouts / periods (seconds).
+    server_wait_timeout_s: 20.0
+    service_timeout_s: 10.0
+    goal_response_timeout_s: 15.0
+    result_timeout_s: 330.0
+    hardware_refresh_period_s: 0.5
+
+graph_visualizer:
+  ros__parameters:
+    snapshot_service_name: "get_graph_snapshot"
+    marker_topic: "semantic_graph_markers"
+    frame_id: "map"
+    namespace: "semantic_graph"
+    publish_period_s: 2.0
+    sphere_scale: 0.3
+    text_scale: 0.25
+    text_z_offset: 0.4
+    line_width: 0.05
+    node_color: [0.1, 0.6, 1.0, 1.0]
+    text_color: [1.0, 1.0, 1.0, 1.0]
+    edge_color: [0.7, 0.7, 0.7, 0.8]
+
+teleop_capture:
+  ros__parameters:
+    cmd_vel_topic: "cmd_vel"
+    camera_topic: "/camera/image_raw"
+    capture_action_name: "capture_waypoint"
+    dataset_dir: "~/semantic_dataset"
+    capture_label: "waypoint"
+    linear_speed: 0.4
+    angular_speed: 0.8
+    server_wait_timeout_s: 5.0

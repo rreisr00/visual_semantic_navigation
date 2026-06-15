@@ -45,8 +45,8 @@ from knowledge_graph.graph import Node, Edge
 from knowledge_graph_msgs.msg import Node as NodeMsg, Edge as EdgeMsg
 from knowledge_graph_msgs.msg import Content, Property
 
-from semantic_interfaces.msg import WaypointInfo
-from semantic_interfaces.srv import StoreWaypoint, GetWaypoints
+from semantic_interfaces.msg import WaypointInfo, GraphEdge
+from semantic_interfaces.srv import StoreWaypoint, GetWaypoints, GetGraphSnapshot
 
 
 class KnowledgeGraphBridgeNode(LifecycleNode):
@@ -66,6 +66,7 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
         self._db_lock = threading.Lock()
         self._store_srv = None
         self._get_waypoints_srv = None
+        self._snapshot_srv = None
 
         # Serialise all graph/SQLite access through one callback group so the
         # store and query services never run concurrently against the graph.
@@ -126,8 +127,13 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
             GetWaypoints, "get_waypoints", self._handle_get_waypoints,
             callback_group=self._graph_cbg,
         )
+        self._snapshot_srv = self.create_service(
+            GetGraphSnapshot, "get_graph_snapshot", self._handle_get_graph_snapshot,
+            callback_group=self._graph_cbg,
+        )
         self.get_logger().info(
-            "Activated – /store_waypoint and /get_waypoints services ready."
+            "Activated – /store_waypoint, /get_waypoints and /get_graph_snapshot "
+            "services ready."
         )
         return super().on_activate(state)
 
@@ -138,6 +144,9 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
         if self._get_waypoints_srv is not None:
             self.destroy_service(self._get_waypoints_srv)
             self._get_waypoints_srv = None
+        if self._snapshot_srv is not None:
+            self.destroy_service(self._snapshot_srv)
+            self._snapshot_srv = None
         return super().on_deactivate(state)
 
     def on_cleanup(self, state: State) -> TransitionCallbackReturn:
@@ -229,6 +238,42 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
         except Exception as exc:  # noqa: BLE001
             self.get_logger().error(f"GetWaypoints failed: {exc}")
             response.waypoints = []
+            response.success = False
+            response.message = str(exc)
+        return response
+
+    # ------------------------------------------------------------------ #
+    # /get_graph_snapshot service callback
+    # ------------------------------------------------------------------ #
+
+    def _handle_get_graph_snapshot(
+        self,
+        request: GetGraphSnapshot.Request,
+        response: GetGraphSnapshot.Response,
+    ) -> GetGraphSnapshot.Response:
+        """Read-only snapshot: counts + pose-bearing waypoints + connectivity."""
+        try:
+            nodes = self._graph.get_nodes()
+            edges = self._graph.get_edges()
+            response.total_nodes = len(nodes)
+            response.total_edges = len(edges)
+            for node in nodes:
+                if node.get_type() == "waypoint":
+                    response.waypoints.append(self._node_to_waypoint_info(node))
+            for edge in edges:
+                ge = GraphEdge()
+                ge.source_node = edge.get_source_node()
+                ge.target_node = edge.get_target_node()
+                ge.type = edge.get_type()
+                response.edges.append(ge)
+            response.success = True
+            response.message = "OK"
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().error(f"GetGraphSnapshot failed: {exc}")
+            response.waypoints = []
+            response.edges = []
+            response.total_nodes = 0
+            response.total_edges = 0
             response.success = False
             response.message = str(exc)
         return response

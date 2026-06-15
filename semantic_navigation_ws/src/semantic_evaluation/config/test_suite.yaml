@@ -1,0 +1,29 @@
+# Evaluation test suite. Each case carries an expected (ground-truth) node_id and
+# EITHER a text query (query_text) OR an image query (image_path, loaded via
+# cv_bridge/OpenCV). Node ids follow the <room><sep><instance> convention so the
+# room-level metric can derive the room (cocina_01 -> cocina).
+cases:
+  - case_id: kitchen_coffee
+    expected_node_id: cocina_01
+    query_text: "the coffee machine on the kitchen counter"
+
+  - case_id: kitchen_sink
+    expected_node_id: cocina_02
+    query_text: "the kitchen sink"
+
+  - case_id: living_sofa
+    expected_node_id: sala_estar_01
+    query_text: "the sofa in the living room"
+
+  - case_id: living_tv
+    expected_node_id: sala_estar_02
+    query_text: "the television set"
+
+  - case_id: bedroom_bed
+    expected_node_id: dormitorio_01
+    query_text: "the bed in the bedroom"
+
+  # Example image case (uncomment and point image_path at a real file):
+  # - case_id: kitchen_image
+  #   expected_node_id: cocina_01
+  #   image_path: "~/semantic_dataset/cocina_01_query.png"

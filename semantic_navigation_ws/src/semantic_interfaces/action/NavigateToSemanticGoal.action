@@ -3,12 +3,19 @@
 string query_text                 # Used when use_image is false.
 sensor_msgs/Image query_image     # Used when use_image is true.
 bool use_image
+bool decision_only                # If true, stop after ranking (no Nav2 drive);
+                                  # navigation_s is returned as NaN.
 ---
 # Result
 bool success
 string matched_node_id
 float32 score
 string message
+# Phase latencies measured *inside* the orchestrator (the only component that
+# knows each phase boundary). navigation_s is NaN in decision_only mode.
+float64 visual_extraction_s
+float64 retrieval_s
+float64 navigation_s
 ---
 # Feedback
 # stage one of: "embedding", "ranking", "navigating"
