@@ -1,0 +1,33 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>semantic_voice</name>
+  <version>0.1.0</version>
+  <description>
+    Voice control for the semantic navigation stack: Whisper (faster-whisper)
+    transcription with push-to-talk / VAD / text activation, and a rules+regex
+    intent parser that dispatches to NavigateToPose, CaptureWaypoint and
+    NavigateToSemanticGoal. Speech/intent logic lives in a pure-Python core
+    (semantic_voice.core) with no ROS dependency.
+  </description>
+  <maintainer email="rreisr00@estudiantes.unileon.es">developer</maintainer>
+  <license>Apache-2.0</license>
+
+  <buildtool_depend>ament_python</buildtool_depend>
+
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
+  <exec_depend>semantic_interfaces</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
+
+  <test_depend>ament_copyright</test_depend>
+  <test_depend>ament_flake8</test_depend>
+  <test_depend>ament_pep257</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

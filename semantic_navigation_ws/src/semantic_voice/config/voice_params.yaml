@@ -1,0 +1,32 @@
+voice_command:
+  ros__parameters:
+    # text | push_to_talk | vad
+    #   text          typed commands on stdin (no mic/GPU — testing)
+    #   push_to_talk  press ptt_key to start/stop recording (toggle)
+    #   vad           hands-free, RMS speech segmentation
+    activation_mode: "push_to_talk"
+
+    # faster-whisper
+    model_size: "small"
+    device: "cuda"                  # "cpu" if VRAM is tight (SigLIP+YOLO share the 6 GB)
+    compute_type: "int8_float16"    # use "int8" when device is cpu
+    language: "en"
+
+    # Microphone (sounddevice). "" = system default input.
+    mic_device: ""
+    sample_rate: 16000
+
+    # VAD-mode segmentation
+    vad_rms_threshold: 0.015
+    vad_hangover_s: 0.8
+    vad_max_utterance_s: 12.0
+
+    # Push-to-talk key (single character)
+    ptt_key: "r"
+
+    # Dispatch
+    goal_frame_id: "map"
+    navigate_action_name: "navigate_to_pose"
+    capture_action_name: "capture_waypoint"
+    semantic_action_name: "navigate_to_semantic_goal"
+    server_wait_timeout_s: 5.0
