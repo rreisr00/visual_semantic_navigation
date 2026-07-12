@@ -29,6 +29,7 @@ shutdown    No-op.
 """
 from __future__ import annotations
 
+import os
 import time
 from typing import Optional
 
@@ -78,7 +79,9 @@ class VisualEncoderNode(LifecycleNode):
 
         self.declare_parameter("retrieval_mode", "siglip_pure")
         self.declare_parameter("siglip_model_id", "google/siglip-base-patch16-224")
-        self.declare_parameter("yolo_model_path", "yolov8n.pt")
+        self.declare_parameter(
+            "yolo_model_path", "~/.ros/semantic_models/yolov8n.pt"
+        )
         self.declare_parameter("yolo_confidence_threshold", 0.4)
         # When True the next configure loads SigLIP on CPU (OOM fallback).
         self.declare_parameter("force_cpu", False)
@@ -104,7 +107,9 @@ class VisualEncoderNode(LifecycleNode):
     def on_configure(self, state) -> TransitionCallbackReturn:
         mode = self.get_parameter("retrieval_mode").value
         model_id = self.get_parameter("siglip_model_id").value
-        yolo_path = self.get_parameter("yolo_model_path").value
+        # expanduser so the default works regardless of the launch CWD
+        # (a bare "yolov8n.pt" resolves against CWD and silently re-downloads).
+        yolo_path = os.path.expanduser(self.get_parameter("yolo_model_path").value)
         yolo_conf = self.get_parameter("yolo_confidence_threshold").value
         force_cpu = self._force_cpu or bool(self.get_parameter("force_cpu").value)
 

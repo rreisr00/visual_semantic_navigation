@@ -63,3 +63,9 @@ dist/
 # pytest
 .pytest_cache/
 
+# Runtime artifacts that must not live in the repo:
+# the authoritative KG database is ~/.ros/semantic_maps/knowledge_graph.db
+# and YOLO weights live in ~/.ros/semantic_models/
+knowledge_graph.db
+yolov8n.pt
+

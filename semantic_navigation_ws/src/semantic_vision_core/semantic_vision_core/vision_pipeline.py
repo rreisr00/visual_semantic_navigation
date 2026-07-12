@@ -7,6 +7,8 @@ siglip_yolo  SigLIP image embedding + YOLOv8 object detection.
 """
 from __future__ import annotations
 
+import os
+
 import numpy as np
 
 # Heavy ML deps are optional at import time so the module can be imported
@@ -161,7 +163,10 @@ class SemanticVisionPipeline:
             raise ImportError(
                 "ultralytics not installed. Install via: pip install ultralytics"
             ) from exc
-        self._yolo_model = YOLO(model_path)
+        # expanduser so "~/..." defaults resolve; a bare relative filename
+        # would resolve against the process CWD (ultralytics then downloads
+        # a fresh copy wherever the node happened to start).
+        self._yolo_model = YOLO(os.path.expanduser(model_path))
 
     @staticmethod
     def _normalise(features) -> np.ndarray:

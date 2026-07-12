@@ -24,8 +24,10 @@ semantic_navigation_ws/
     ├── knowledge_graph/              # PURE: third-party knowledge graph lib (+ C++ targets)
     ├── knowledge_graph_ros/          # knowledge_graph_bridge lifecycle node (+ SQLite)
     ├── semantic_navigation_core/     # PURE: ranking (cosine/Jaccard) + capture state machine
-    ├── semantic_navigation_ros/      # kg_manager, semantic_orchestrator, lifecycle_manager, evaluation_node
-    ├── semantic_bringup/             # simulation.launch.py, nav2 params, rviz, worlds
+    ├── semantic_navigation_ros/      # kg_manager, semantic_orchestrator, lifecycle_manager
+    ├── semantic_evaluation/          # UF-7 metrics collector, teleop capture, RViz graph visualizer
+    ├── semantic_voice/               # voice control: faster-whisper + intent parser (PURE core/)
+    ├── semantic_bringup/             # simulation.launch.py, nav2 params, rviz, worlds, vendored robot model
     └── aws-robomaker-small-house-world/   # simulation world + map
 ```
 
@@ -97,16 +99,27 @@ the simulation in one step — see [Usage](#usage).
 
 ### Build + launch the full simulation
 
+The scripts live inside the workspace directory:
+
 ```bash
+cd semantic_navigation_ws
 ./run_simulation.sh                       # full colcon build + launch
 ./run_simulation.sh --no-build            # skip the build (source + launch)
 ./run_simulation.sh --pkg semantic_bringup  # build a single package
 ./run_simulation.sh -- use_sim_time:=false map:=/path/to/map.yaml   # forward launch args
+./run_simulation.sh -- camera_mast_z:=0.6   # camera height [m] (default 0.45)
 ```
 
 `run_simulation.sh` sources ROS, builds (`--symlink-install`), kills any stale
 Gazebo process, then runs `semantic_bringup simulation.launch.py` (Gazebo + Nav2
 + the semantic layer).
+
+> **Robot camera:** the simulation spawns a vendored TurtleBot3 waffle
+> (`semantic_bringup/models/turtlebot3_waffle_semantic`) whose RGB camera is
+> raised on a mast to `camera_mast_z` meters (stock height is 0.107 m — too low
+> for furniture-level SigLIP captures) at 640×480. TF from
+> `robot_state_publisher` still uses the stock URDF camera height; that only
+> matters if something starts consuming camera-frame TF (nothing does today).
 
 ### Health check
 
@@ -146,6 +159,37 @@ Image query (`use_image: true` with a `sensor_msgs/Image` in `query_image`).
 Feedback reports `embedding` → `ranking` → `navigating` plus
 `distance_remaining`; the result carries the matched `node_id` and score.
 
+### Voice control (`semantic_voice`)
+
+Speak English commands; faster-whisper transcribes and a rules/regex parser
+dispatches to the actions above:
+
+| You say | Intent | Action |
+|---|---|---|
+| "move to 2.5 3.0" | direct move (map coords) | Nav2 `/navigate_to_pose` |
+| "save waypoint kitchen" | capture with label | `/capture_waypoint` |
+| "go to the sofa" (anything else) | semantic query | `/navigate_to_semantic_goal` |
+
+One-time setup: `sudo apt install libportaudio2` (microphone) — the Python deps
+(`faster-whisper`, `sounddevice`) come from `requirements.txt`.
+
+```bash
+# hands-free (VAD) — venv PYTHONPATH injected by the launch file
+ros2 launch semantic_voice voice.launch.py activation_mode:=vad
+
+# push-to-talk / text modes need a real terminal (stdin), so use ros2 run:
+PYTHONPATH=../.venv-1/lib/python3.12/site-packages:$PYTHONPATH \
+    ros2 run semantic_voice voice_command --ros-args \
+    --params-file src/semantic_voice/config/voice_params.yaml \
+    -p activation_mode:=push_to_talk        # or text
+```
+
+Modes (`activation_mode` param): `push_to_talk` (press `r` to start/stop
+recording), `vad` (continuous listening, RMS segmentation), `text` (type
+commands — no mic/GPU, ideal for testing the dispatch path). Whisper `small`
+runs on the GPU in `int8_float16` (~0.5 GB VRAM next to SigLIP/YOLO); set
+`device: cpu` in `config/voice_params.yaml` under VRAM pressure.
+
 ---
 
 ## Nodes
@@ -157,7 +201,8 @@ Feedback reports `embedding` → `ranking` → `navigating` plus
 | `kg_manager` | `semantic_navigation_ros` / `kg_manager` | Action server | `/capture_waypoint` |
 | `semantic_orchestrator` | `semantic_navigation_ros` / `semantic_orchestrator` | Action server | `/navigate_to_semantic_goal` |
 | `lifecycle_manager` | `semantic_navigation_ros` / `lifecycle_manager` | Supervisor | drives the lifecycle nodes to `active` |
-| `evaluation_node` | `semantic_navigation_ros` / `evaluation_node` | Metrics | `/save_evaluation_results` |
+| `evaluation_collector` | `semantic_evaluation` / `evaluation_collector` | Metrics | active campaign harness + CSV export (see `semantic_evaluation`) |
+| `voice_command` | `semantic_voice` / `voice_command` | Client | voice → `/navigate_to_pose` · `/capture_waypoint` · `/navigate_to_semantic_goal` |
 
 All coordinator nodes run on a `MultiThreadedExecutor` with the action server
 and the service/action clients in separate callback groups (no
@@ -169,7 +214,7 @@ and the service/action clients in separate callback groups (no
 |---|---|---|
 | `visual_encoder` | `retrieval_mode` | `siglip_pure` \| `siglip_yolo` |
 | | `siglip_model_id` | `google/siglip-base-patch16-224` |
-| | `yolo_model_path` / `yolo_confidence_threshold` | `yolov8n.pt` / `0.4` |
+| | `yolo_model_path` / `yolo_confidence_threshold` | `~/.ros/semantic_models/yolov8n.pt` / `0.4` |
 | | `force_cpu` | `false` (CPU fallback on persistent CUDA OOM) |
 | `semantic_orchestrator` | `retrieval_mode` | `siglip_yolo` |
 | | `hybrid_embedding_weight` / `hybrid_object_weight` | `0.7` / `0.3` |
@@ -235,6 +280,9 @@ waypoints. An ANN index (FAISS/hnswlib) is intentionally **not** included yet.
 # Pure unit tests (no ROS graph required)
 colcon test --packages-select semantic_navigation_core
 colcon test-result --verbose
+
+# semantic_voice core (intent parser + speech segmenter), plain pytest
+python3 -m pytest src/semantic_voice/test -v
 ```
 
 ---

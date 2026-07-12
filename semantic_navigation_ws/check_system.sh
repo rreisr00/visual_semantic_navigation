@@ -38,7 +38,6 @@ SEMANTIC_NODES=(
     /lifecycle_manager
     /kg_manager
     /semantic_orchestrator
-    /evaluation_node
 )
 
 # Nodes whose lifecycle state is queried individually.

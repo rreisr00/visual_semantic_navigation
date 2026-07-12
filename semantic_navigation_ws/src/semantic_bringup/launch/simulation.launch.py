@@ -2,9 +2,11 @@
 """
 Bringup launch for the visual-semantic navigation project.
 
-Starts (in order):
+Starts:
   1. Gazebo          – semantic_test.world via ros_gz_sim
-  2. TurtleBot3      – robot_state_publisher + spawn via turtlebot3_gazebo
+  2. TurtleBot3      – robot_state_publisher + vendored waffle spawn (mast
+                       camera) + gz<->ROS bridges; the post-spawn pose reset
+                       is event-chained to the spawn process exit
   3. Localization    – map_server + amcl + lifecycle_manager_localization
   4. Navigation      – controller, smoother, planner, route_server, behavior,
                        bt_navigator, waypoint_follower, velocity_smoother,
@@ -12,15 +14,20 @@ Starts (in order):
                        lifecycle_manager_navigation
   5. RViz2           – project config from this package
   6. Semantic layer  – visual_encoder, kg_manager, semantic_orchestrator,
-                       evaluation_node, knowledge_graph_db
+                       knowledge_graph_bridge
+                       (metrics: use semantic_evaluation's evaluation_collector)
 
 Launch arguments
 ----------------
-  use_sim_time  (default: true)
-  map           (default: aws_robomaker_small_house_world bundled map)
-  world         (default: semantic_bringup/worlds/semantic_test.world)
+  use_sim_time   (default: true)
+  map            (default: aws_robomaker_small_house_world bundled map)
+  world          (default: semantic_bringup/worlds/semantic_test.world)
+  camera_mast_z  (default: 0.45) camera height [m]; the robot is spawned from
+                 the vendored turtlebot3_waffle_semantic model, not the stock
+                 turtlebot3_gazebo one
 """
 
+import glob
 import os
 
 from ament_index_python.packages import get_package_share_directory
@@ -29,9 +36,9 @@ from launch.actions import (
     DeclareLaunchArgument,
     ExecuteProcess,
     IncludeLaunchDescription,
+    OpaqueFunction,
     RegisterEventHandler,
     SetEnvironmentVariable,
-    TimerAction,
 )
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
@@ -40,6 +47,27 @@ from launch_ros.actions import Node
 from launch_ros.descriptions import ParameterFile
 from launch_ros.substitutions import FindPackageShare
 from nav2_common.launch import RewrittenYaml
+
+
+def find_venv_site_packages(start_dir: str) -> str:
+    """Locate the ML venv's site-packages for PYTHONPATH injection.
+
+    Honours the SEMANTIC_NAV_VENV_SITE env var; otherwise walks up from
+    ``start_dir`` (an installed share path) until a ``.venv-1`` appears,
+    globbing the python minor version so a 3.13 rebuild keeps working.
+    """
+    override = os.environ.get("SEMANTIC_NAV_VENV_SITE")
+    if override:
+        return override
+    d = start_dir
+    for _ in range(10):
+        d = os.path.dirname(d)
+        hits = glob.glob(os.path.join(d, ".venv-1", "lib", "python3.*", "site-packages"))
+        if hits:
+            return sorted(hits)[-1]
+    raise RuntimeError(
+        f"Could not find .venv-1 above {start_dir}; set SEMANTIC_NAV_VENV_SITE."
+    )
 
 
 def generate_launch_description() -> LaunchDescription:
@@ -52,6 +80,7 @@ def generate_launch_description() -> LaunchDescription:
     _snr_share     = get_package_share_directory("semantic_navigation_ros")
     _svr_share     = get_package_share_directory("semantic_vision_ros")
     _kgr_share     = get_package_share_directory("knowledge_graph_ros")
+    _tb3_share     = get_package_share_directory("turtlebot3_gazebo")
 
     _params_file = os.path.join(_bringup_share, "config", "nav2_params.yaml")
     _rviz_config = os.path.join(_bringup_share, "config", "rviz_config.rviz")
@@ -84,6 +113,10 @@ def generate_launch_description() -> LaunchDescription:
             [FindPackageShare("semantic_bringup"), "worlds", "semantic_test.world"]
         ),
         description="Full path to the Gazebo world file.",
+    )
+    camera_mast_arg = DeclareLaunchArgument(
+        "camera_mast_z", default_value="0.45",
+        description="Camera height above base_footprint [m] (stock waffle: 0.107).",
     )
 
     use_sim_time = LaunchConfiguration("use_sim_time")
@@ -145,36 +178,85 @@ def generate_launch_description() -> LaunchDescription:
         launch_arguments={"use_sim_time": use_sim_time}.items(),
     )
 
-    spawn_turtlebot3 = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution(
-                [FindPackageShare("turtlebot3_gazebo"), "launch",
-                 "spawn_turtlebot3.launch.py"]
-            )
-        ),
-        launch_arguments={"x_pose": "0.0", "y_pose": "0.0"}.items(),
+    # The stock spawn_turtlebot3.launch.py hardcodes the system waffle SDF, so
+    # we replicate its three nodes (create + parameter_bridge + image_bridge)
+    # and spawn our vendored model with the camera raised to `camera_mast_z`.
+    # The vendored SDF differs from the stock one only in camera height
+    # (placeholder-substituted below), 640x480 resolution and a mast visual.
+    # TF caveat: robot_state_publisher keeps the stock URDF camera height
+    # (~0.12 m); fine while nothing consumes camera-frame TF.
+    def _spawn_robot(context):
+        camera_z = float(LaunchConfiguration("camera_mast_z").perform(context))
+        mast_bottom = 0.107          # stock camera height ≈ robot top plate
+        mast_length = max(camera_z - mast_bottom, 0.001)
+        sdf_path = os.path.join(
+            _bringup_share, "models", "turtlebot3_waffle_semantic", "model.sdf"
+        )
+        with open(sdf_path, encoding="utf-8") as f:
+            sdf = f.read()
+        sdf = (
+            sdf.replace("@CAMERA_Z@", f"{camera_z:.4f}")
+               .replace("@MAST_LENGTH@", f"{mast_length:.4f}")
+               .replace("@MAST_CENTER_Z@", f"{-mast_length / 2.0:.4f}")
+        )
+        create_robot = Node(
+            package="ros_gz_sim",
+            executable="create",
+            arguments=[
+                "-name", "waffle",          # reset_robot_pose targets this name
+                "-string", sdf,
+                "-x", "0.0", "-y", "0.0", "-z", "0.01",
+            ],
+            output="screen",
+        )
+        # Reset the robot pose to (0, 0) once `create` has exited (i.e. the
+        # entity exists). Guards against a stale Gazebo session where the
+        # model sits at its previous position while AMCL re-initialises at
+        # the origin. Event-chained instead of a fixed timer so it can never
+        # fire before the spawn.
+        reset_robot_pose = ExecuteProcess(
+            cmd=[
+                "gz", "service",
+                "-s", "/world/semantic_test/set_pose",
+                "--reqtype", "gz.msgs.Pose",
+                "--reptype", "gz.msgs.Boolean",
+                "--timeout", "2000",
+                "--req",
+                "name: 'waffle' position: {x: 0.0 y: 0.0 z: 0.01}"
+                " orientation: {w: 1.0}",
+            ],
+            output="screen",
+        )
+        return [
+            create_robot,
+            RegisterEventHandler(
+                OnProcessExit(
+                    target_action=create_robot,
+                    on_exit=[reset_robot_pose],
+                )
+            ),
+        ]
+
+    spawn_turtlebot3 = OpaqueFunction(function=_spawn_robot)
+
+    # gz<->ROS bridges normally started by spawn_turtlebot3.launch.py
+    # (clock, odom, tf, cmd_vel, imu, scan, joint_states, camera_info).
+    tb3_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        parameters=[{
+            "config_file": os.path.join(
+                _tb3_share, "params", "turtlebot3_waffle_bridge.yaml"
+            ),
+        }],
+        output="screen",
     )
 
-    # Reset the robot pose inside Gazebo to (0, 0) after spawning.
-    # Guards against a stale Gazebo session where the model is at its
-    # previous position while AMCL re-initialises at the origin.
-    reset_robot_pose = TimerAction(
-        period=3.0,
-        actions=[
-            ExecuteProcess(
-                cmd=[
-                    "gz", "service",
-                    "-s", "/world/semantic_test/set_pose",
-                    "--reqtype", "gz.msgs.Pose",
-                    "--reptype", "gz.msgs.Boolean",
-                    "--timeout", "2000",
-                    "--req",
-                    "name: 'waffle' position: {x: 0.0 y: 0.0 z: 0.01}"
-                    " orientation: {w: 1.0}",
-                ],
-                output="screen",
-            )
-        ],
+    camera_image_bridge = Node(
+        package="ros_gz_image",
+        executable="image_bridge",
+        arguments=["/camera/image_raw"],
+        output="screen",
     )
 
     # ------------------------------------------------------------------ #
@@ -340,15 +422,8 @@ def generate_launch_description() -> LaunchDescription:
 
     # ------------------------------------------------------------------ #
     # 6. Semantic layer – ML venv handling
-    #    share path: .../install/<pkg>/share/<pkg>
-    #    5 × dirname  →  project root (.../visual_semantic_navigation/)
     # ------------------------------------------------------------------ #
-    _project_root = os.path.dirname(
-        os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(_snr_share))))
-    )
-    _venv_site = os.path.join(
-        _project_root, ".venv-1", "lib", "python3.12", "site-packages"
-    )
+    _venv_site = find_venv_site_packages(_snr_share)
     _extra_env = {
         "PYTHONPATH": _venv_site + ":" + os.environ.get("PYTHONPATH", "")
     }
@@ -407,14 +482,6 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
     )
 
-    eval_node = Node(
-        package="semantic_navigation_ros",
-        executable="evaluation_node",
-        name="evaluation_node",
-        parameters=[{"use_sim_time": use_sim_time}],
-        output="screen",
-    )
-
     # ------------------------------------------------------------------ #
     # Launch description
     # ------------------------------------------------------------------ #
@@ -423,14 +490,16 @@ def generate_launch_description() -> LaunchDescription:
         use_sim_time_arg,
         map_arg,
         world_arg,
+        camera_mast_arg,
         # Environment
         set_tb3_model,
         set_gz_resource_path,
         # 1. Simulation
         gazebo,
         robot_state_publisher,
-        spawn_turtlebot3,
-        reset_robot_pose,
+        spawn_turtlebot3,          # also chains the post-spawn pose reset
+        tb3_bridge,
+        camera_image_bridge,
         # 2. Localization
         map_server,
         amcl,
@@ -455,5 +524,4 @@ def generate_launch_description() -> LaunchDescription:
         semantic_lifecycle_manager,
         kg_manager_node,
         orchestrator_node,
-        eval_node,
     ])
