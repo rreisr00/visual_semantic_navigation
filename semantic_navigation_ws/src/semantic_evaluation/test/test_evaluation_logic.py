@@ -209,3 +209,85 @@ def _result(
         hardware=hardware or HardwareSample(),
         graph=graph or GraphContext(),
     )
+
+
+# ── graph-based room accuracy ────────────────────────────────────────────── #
+
+from semantic_evaluation.core.evaluation_logic import build_room_map, room_of  # noqa: E402
+
+
+class TestBuildRoomMap:
+    WAYPOINTS = {"cocina_01", "cocina_02", "sala_estar_01"}
+
+    def test_room_edges_extracted(self):
+        edges = [
+            ("CONTAINS", "zona_norte", "cocina_01"),
+            ("CONTAINS", "zona_sur", "sala_estar_01"),
+        ]
+        assert build_room_map(edges, self.WAYPOINTS) == {
+            "cocina_01": "zona_norte",
+            "sala_estar_01": "zona_sur",
+        }
+
+    def test_object_edges_ignored(self):
+        # waypoint→object CONTAINS edges have the waypoint as SOURCE.
+        edges = [("CONTAINS", "cocina_01", "cocina_01_sink")]
+        assert build_room_map(edges, self.WAYPOINTS) == {}
+
+    def test_non_contains_edges_ignored(self):
+        edges = [("NEAR", "zona_norte", "cocina_01")]
+        assert build_room_map(edges, self.WAYPOINTS) == {}
+
+    def test_first_room_wins_on_duplicates(self):
+        edges = [
+            ("CONTAINS", "zona_a", "cocina_01"),
+            ("CONTAINS", "zona_b", "cocina_01"),
+        ]
+        assert build_room_map(edges, self.WAYPOINTS)["cocina_01"] == "zona_a"
+
+
+class TestRoomOf:
+    def test_graph_wins_over_label(self):
+        room_map = {"cocina_01": "zona_norte"}
+        assert room_of("cocina_01", room_map) == "zona_norte"
+
+    def test_fallback_to_label_when_unmapped(self):
+        assert room_of("cocina_01", {"otro": "zona"}) == "cocina"
+
+    def test_fallback_when_map_is_none(self):
+        assert room_of("sala_estar_02", None) == "sala_estar"
+
+
+class TestGraphRoomAccuracy:
+    def test_graph_map_changes_verdict(self):
+        # Label heuristic says different rooms; the graph says the same room.
+        room_map = {"cocina_01": "zona_comun", "salon_01": "zona_comun"}
+        assert not is_room_level_correct("salon_01", "cocina_01")
+        assert is_room_level_correct("salon_01", "cocina_01", room_map=room_map)
+
+    def test_mixed_mapped_and_fallback(self):
+        # Expected mapped to a room; predicted falls back to its label key.
+        room_map = {"cocina_01": "cocina"}
+        assert is_room_level_correct("cocina_02", "cocina_01", room_map=room_map)
+
+    def test_annotate_and_aggregate_with_map(self):
+        room_map = {"a_01": "zona", "b_01": "zona"}
+        r = _result("c1", "b_01", "a_01", True)
+        annotate_accuracy(r, room_map=room_map)
+        assert r.room_correct and not r.top1_correct
+        agg = aggregate([r], room_map=room_map)
+        assert agg.room_rate == 1.0 and agg.top1_rate == 0.0
+
+    def test_write_csv_preserves_graph_room_correct(self, tmp_path):
+        # Without room_map threading, aggregate() inside write_csv would
+        # re-annotate with the label heuristic and flip room_correct to 0.
+        room_map = {"a_01": "zona", "b_01": "zona"}
+        r = _result("c1", "b_01", "a_01", True)
+        path = str(tmp_path / "out.csv")
+        write_csv(path, [r], room_map=room_map)
+        import csv as _csv
+
+        with open(path) as fh:
+            rows = list(_csv.DictReader(fh))
+        assert rows[0]["room_correct"] == "1"
+        assert rows[-1]["room_correct"] == "1.000000"

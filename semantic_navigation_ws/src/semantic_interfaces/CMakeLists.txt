@@ -19,6 +19,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/StoreWaypoint.srv"
   "srv/GetWaypoints.srv"
   "srv/GetGraphSnapshot.srv"
+  "srv/AddRoom.srv"
   "action/CaptureWaypoint.action"
   "action/NavigateToSemanticGoal.action"
   DEPENDENCIES sensor_msgs geometry_msgs action_msgs

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import csv
 import math
-from typing import Any
+from typing import Any, Mapping
 
 from semantic_evaluation.core.evaluation_logic import (
     STRATEGY_STRIP_LAST,
@@ -103,9 +103,15 @@ def build_rows(
     results: list[TestCaseResult],
     separator: str = "_",
     strategy: str = STRATEGY_STRIP_LAST,
+    room_map: Mapping[str, str] | None = None,
 ) -> list[dict[str, str]]:
-    """Per-case rows + the final aggregate row, all annotated for accuracy."""
-    agg = aggregate(results, separator, strategy)  # also annotates each result
+    """Per-case rows + the final aggregate row, all annotated for accuracy.
+
+    ``room_map`` must be forwarded here: ``aggregate`` re-annotates each
+    result defensively, so omitting it would overwrite graph-based
+    ``room_correct`` values with the label heuristic.
+    """
+    agg = aggregate(results, separator, strategy, room_map)  # also annotates
     rows = [case_to_row(r) for r in results]
     rows.append(aggregate_to_row(agg))
     return rows
@@ -116,9 +122,10 @@ def write_csv(
     results: list[TestCaseResult],
     separator: str = "_",
     strategy: str = STRATEGY_STRIP_LAST,
+    room_map: Mapping[str, str] | None = None,
 ) -> str:
     """Write the fixed-schema CSV to ``path`` and return that path."""
-    rows = build_rows(results, separator, strategy)
+    rows = build_rows(results, separator, strategy, room_map)
     with open(path, "w", newline="") as fh:
         writer = csv.DictWriter(fh, fieldnames=CSV_COLUMNS)
         writer.writeheader()

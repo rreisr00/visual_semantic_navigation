@@ -119,7 +119,7 @@ class SemanticVisionPipeline:
         inputs = {k: v.to(self._device) for k, v in inputs.items()}
         with torch.no_grad():
             features = self._model.get_image_features(**inputs)
-        return self._normalise(features)
+        return self._normalise(_pooled(features))
 
     def embed_text(self, text: str) -> np.ndarray:
         """L2-normalised SigLIP text embedding.
@@ -142,7 +142,7 @@ class SemanticVisionPipeline:
         inputs = {k: v.to(self._device) for k, v in inputs.items()}
         with torch.no_grad():
             features = self._model.get_text_features(**inputs)
-        return self._normalise(features)
+        return self._normalise(_pooled(features))
 
     # ── private ────────────────────────────────────────────────────────────── #
 
@@ -187,3 +187,15 @@ class SemanticVisionPipeline:
                     seen.add(name)
                     labels.append(name)
         return labels
+
+
+def _pooled(features):
+    """Extract the pooled embedding tensor across transformers versions.
+
+    transformers 4.x: get_image/text_features returns the pooled tensor.
+    transformers 5.x: it returns the full BaseModelOutputWithPooling — the
+    embedding lives in ``pooler_output``.
+    """
+    if torch.is_tensor(features):
+        return features
+    return features.pooler_output

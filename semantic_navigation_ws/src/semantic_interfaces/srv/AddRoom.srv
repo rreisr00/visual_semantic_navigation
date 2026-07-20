@@ -1,0 +1,14 @@
+# Define (or redefine) a rectangular room zone in the map frame.
+# The knowledge-graph bridge creates a type="room" node with the rectangle
+# stored as properties, then sweeps existing waypoints: every waypoint whose
+# pose lies inside the rectangle gets a CONTAINS room->waypoint edge (and
+# stale edges from a previous rectangle are removed).
+string room_id
+float64 min_x
+float64 min_y
+float64 max_x
+float64 max_y
+---
+bool success
+string message
+int32 waypoints_assigned   # CONTAINS room->waypoint edges after the sweep

@@ -1,14 +1,18 @@
 """Pure accuracy / aggregation logic — no rclpy / ROS message imports.
 
-Room-level accuracy treats waypoint ids as ``<room>[<sep><instance>]`` and
-compares the room portion. The split strategy is configurable so the same code
-serves ``cocina_01`` (strip_last) and other conventions without edits.
+Room-level accuracy has two sources:
+- **graph**: the knowledge graph links each waypoint to its parent room via a
+  ``CONTAINS`` room→waypoint edge; ``build_room_map`` extracts that mapping
+  from a snapshot's edge list and ``room_of`` resolves a waypoint's room.
+- **label** (fallback / legacy): waypoint ids follow ``<room>[<sep><instance>]``
+  and the room portion is derived from the id (``room_key``). Waypoints without
+  a room edge fall back to this heuristic automatically.
 """
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from semantic_evaluation.core.metrics import TestCaseResult
 
@@ -16,6 +20,46 @@ from semantic_evaluation.core.metrics import TestCaseResult
 STRATEGY_STRIP_LAST = "strip_last"   # cocina_01 -> cocina, sala_estar_02 -> sala_estar
 STRATEGY_FIRST_TOKEN = "first_token"  # cocina_01 -> cocina, sala_estar_02 -> sala
 SUPPORTED_STRATEGIES = (STRATEGY_STRIP_LAST, STRATEGY_FIRST_TOKEN)
+
+# Room sources for room-level accuracy.
+ROOM_SOURCE_GRAPH = "graph"
+ROOM_SOURCE_LABEL = "label"
+SUPPORTED_ROOM_SOURCES = (ROOM_SOURCE_GRAPH, ROOM_SOURCE_LABEL)
+
+# Edge type linking a room (source) to a waypoint (target) in the graph.
+ROOM_EDGE_TYPE = "CONTAINS"
+
+
+def build_room_map(
+    edges: Iterable[tuple[str, str, str]],
+    waypoint_ids: set[str],
+) -> dict[str, str]:
+    """Extract waypoint→room from snapshot edges ``(type, source, target)``.
+
+    A CONTAINS edge whose *target* is a waypoint must come from a room —
+    waypoint→object edges have the waypoint as *source*, so requiring the
+    source to not be a waypoint filters them out without needing node types.
+    First room wins if a waypoint somehow has several.
+    """
+    room_map: dict[str, str] = {}
+    for edge_type, source, target in edges:
+        if edge_type != ROOM_EDGE_TYPE:
+            continue
+        if target in waypoint_ids and source not in waypoint_ids:
+            room_map.setdefault(target, source)
+    return room_map
+
+
+def room_of(
+    node_id: str,
+    room_map: Mapping[str, str] | None,
+    separator: str = "_",
+    strategy: str = STRATEGY_STRIP_LAST,
+) -> str:
+    """Room of a waypoint: graph parent if mapped, else the label heuristic."""
+    if room_map is not None and node_id in room_map:
+        return room_map[node_id]
+    return room_key(node_id, separator, strategy)
 
 
 def room_key(
@@ -55,12 +99,13 @@ def is_room_level_correct(
     expected_node_id: str,
     separator: str = "_",
     strategy: str = STRATEGY_STRIP_LAST,
+    room_map: Mapping[str, str] | None = None,
 ) -> bool:
-    """Same-room match: the predicted and expected ids share a room key."""
+    """Same-room match: graph parent rooms when mapped, label keys otherwise."""
     if not predicted_node_id or not expected_node_id:
         return False
-    return room_key(predicted_node_id, separator, strategy) == room_key(
-        expected_node_id, separator, strategy
+    return room_of(predicted_node_id, room_map, separator, strategy) == room_of(
+        expected_node_id, room_map, separator, strategy
     )
 
 
@@ -68,13 +113,15 @@ def annotate_accuracy(
     result: TestCaseResult,
     separator: str = "_",
     strategy: str = STRATEGY_STRIP_LAST,
+    room_map: Mapping[str, str] | None = None,
 ) -> TestCaseResult:
     """Fill ``top1_correct`` and ``room_correct`` in place and return the result."""
     result.top1_correct = is_top1_correct(
         result.predicted_node_id, result.expected_node_id
     )
     result.room_correct = is_room_level_correct(
-        result.predicted_node_id, result.expected_node_id, separator, strategy
+        result.predicted_node_id, result.expected_node_id,
+        separator, strategy, room_map,
     )
     return result
 
@@ -110,18 +157,21 @@ def aggregate(
     results: list[TestCaseResult],
     separator: str = "_",
     strategy: str = STRATEGY_STRIP_LAST,
+    room_map: Mapping[str, str] | None = None,
 ) -> AggregateResult:
     """Aggregate a list of (already annotated or not) case results.
 
-    Accuracy is recomputed defensively so callers need not pre-annotate. Rates
-    are fractions of all cases; latency / hardware / graph figures are NaN-aware
-    means so decision-only navigation (NaN) does not skew the totals.
+    Accuracy is recomputed defensively so callers need not pre-annotate —
+    pass ``room_map`` here too or the graph-based room accuracy would be
+    silently overwritten by the label heuristic. Rates are fractions of all
+    cases; latency / hardware / graph figures are NaN-aware means so
+    decision-only navigation (NaN) does not skew the totals.
     """
     n = len(results)
     if n == 0:
         return AggregateResult()
 
-    annotated = [annotate_accuracy(r, separator, strategy) for r in results]
+    annotated = [annotate_accuracy(r, separator, strategy, room_map) for r in results]
 
     return AggregateResult(
         n_cases=n,

@@ -16,7 +16,13 @@ evaluation_collector:
     # navigation_s comes back as NaN.
     decision_only: false
 
-    # Room-level accuracy: cocina_01 -> cocina, sala_estar_02 -> sala_estar.
+    # Room-level accuracy source:
+    #   "graph": room = CONTAINS room->waypoint parent in the knowledge graph
+    #            (defined via room_manager / add_room); waypoints without a
+    #            room edge fall back to the label heuristic below.
+    #   "label": legacy — room derived only from the node_id.
+    room_source: "graph"
+    # Label heuristic (fallback): cocina_01 -> cocina, sala_estar_02 -> sala_estar.
     room_separator: "_"
     room_strategy: "strip_last"                   # "strip_last" | "first_token"
 
@@ -48,7 +54,12 @@ teleop_capture:
     camera_topic: "/camera/image_raw"
     capture_action_name: "capture_waypoint"
     dataset_dir: "~/semantic_dataset"
-    capture_label: "waypoint"
+    # "" → el bridge nombra el waypoint según la sala que contiene la pose
+    # ("<room>_<NN>"). Pon un valor (ej. "cocina") para forzar un prefijo.
+    capture_label: ""
     linear_speed: 0.4
     angular_speed: 0.8
     server_wait_timeout_s: 5.0
+    # Jazzy: the gz bridge + Nav2 expect geometry_msgs/TwistStamped on
+    # cmd_vel; set false only for robots using unstamped Twist.
+    stamped_cmd_vel: true

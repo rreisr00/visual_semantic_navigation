@@ -25,6 +25,7 @@ setup(
             "kg_manager = semantic_navigation_ros.kg_manager_node:main",
             "semantic_orchestrator = semantic_navigation_ros.semantic_orchestrator_node:main",
             "lifecycle_manager = semantic_navigation_ros.lifecycle_manager_node:main",
+            "room_manager = semantic_navigation_ros.room_manager_node:main",
         ],
     },
 )

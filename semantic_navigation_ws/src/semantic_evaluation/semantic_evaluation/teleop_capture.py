@@ -32,7 +32,7 @@ from rclpy.action import ActionClient
 from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 
-from geometry_msgs.msg import Twist
+from geometry_msgs.msg import Twist, TwistStamped
 from sensor_msgs.msg import Image
 
 from semantic_interfaces.action import CaptureWaypoint
@@ -77,10 +77,16 @@ class TeleopCaptureNode(Node):
         self.declare_parameter("camera_topic", "/camera/image_raw")
         self.declare_parameter("capture_action_name", "capture_waypoint")
         self.declare_parameter("dataset_dir", "~/semantic_dataset")
-        self.declare_parameter("capture_label", "waypoint")
+        # Empty label → the knowledge-graph bridge auto-names the waypoint
+        # after the room containing the robot's pose ("<room>_<NN>").
+        self.declare_parameter("capture_label", "")
         self.declare_parameter("linear_speed", 0.4)
         self.declare_parameter("angular_speed", 0.8)
         self.declare_parameter("server_wait_timeout_s", 5.0)
+        # Jazzy convention: the gz bridge and Nav2 (enable_stamped_cmd_vel)
+        # expect geometry_msgs/TwistStamped on cmd_vel. A plain Twist publisher
+        # is type-incompatible and the robot silently ignores the teleop.
+        self.declare_parameter("stamped_cmd_vel", True)
 
         self._linear = float(self.get_parameter("linear_speed").value)
         self._angular = float(self.get_parameter("angular_speed").value)
@@ -90,8 +96,11 @@ class TeleopCaptureNode(Node):
         self._label = self.get_parameter("capture_label").value
         self._server_wait = float(self.get_parameter("server_wait_timeout_s").value)
 
+        self._stamped = bool(self.get_parameter("stamped_cmd_vel").value)
         self._cmd_pub = self.create_publisher(
-            Twist, self.get_parameter("cmd_vel_topic").value, 10
+            TwistStamped if self._stamped else Twist,
+            self.get_parameter("cmd_vel_topic").value,
+            10,
         )
         self.create_subscription(
             Image,
@@ -129,7 +138,14 @@ class TeleopCaptureNode(Node):
         twist = Twist()
         twist.linear.x = linear
         twist.angular.z = angular
-        self._cmd_pub.publish(twist)
+        if self._stamped:
+            msg = TwistStamped()
+            msg.header.stamp = self.get_clock().now().to_msg()
+            msg.header.frame_id = "base_link"
+            msg.twist = twist
+            self._cmd_pub.publish(msg)
+        else:
+            self._cmd_pub.publish(twist)
 
     def stop(self) -> None:
         self.publish_twist(0.0, 0.0)
@@ -158,7 +174,8 @@ class TeleopCaptureNode(Node):
 
         ts = time.strftime("%Y%m%d_%H%M%S")
         self._save_frame(image, ts)
-        self._trigger_capture_action(f"{self._label}_{ts}")
+        # Empty label lets the bridge name the waypoint after its room.
+        self._trigger_capture_action(f"{self._label}_{ts}" if self._label else "")
 
     def _save_frame(self, image: Image, ts: str) -> None:
         if not _HAS_CV:
@@ -166,7 +183,8 @@ class TeleopCaptureNode(Node):
             return
         try:
             frame = self._bridge.imgmsg_to_cv2(image, desired_encoding="bgr8")
-            path = os.path.join(self._dataset_dir, f"{self._label}_{ts}.png")
+            prefix = self._label or "frame"
+            path = os.path.join(self._dataset_dir, f"{prefix}_{ts}.png")
             cv2.imwrite(path, frame)
             self.get_logger().info(f"Saved frame → '{path}'.")
         except Exception as exc:  # noqa: BLE001

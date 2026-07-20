@@ -1,3 +1,6 @@
+# node_id may be empty: the bridge then auto-names the waypoint after the
+# room containing its pose ("<room>_<NN>"), falling back to a timestamped id
+# when the pose lies outside every room. The final id is returned in node_id.
 string node_id
 geometry_msgs/PoseStamped pose
 float32[] visual_embedding
@@ -5,3 +8,4 @@ string[] detected_objects
 ---
 bool success
 string message
+string node_id   # final id under which the waypoint was stored

@@ -46,6 +46,7 @@ from semantic_evaluation.core import (
     LatencyBreakdown,
     TestCaseResult,
     annotate_accuracy,
+    build_room_map,
     write_csv,
 )
 
@@ -88,6 +89,10 @@ class EvaluationCollectorNode(Node):
         self.declare_parameter("decision_only", False)
         self.declare_parameter("room_separator", "_")
         self.declare_parameter("room_strategy", "strip_last")
+        # "graph": room of a waypoint = its CONTAINS room->waypoint parent in
+        # the knowledge graph (label heuristic as per-node fallback).
+        # "label": legacy behavior, room derived from the node_id only.
+        self.declare_parameter("room_source", "graph")
         self.declare_parameter("server_wait_timeout_s", 20.0)
         self.declare_parameter("service_timeout_s", 10.0)
         self.declare_parameter("goal_response_timeout_s", 15.0)
@@ -104,6 +109,9 @@ class EvaluationCollectorNode(Node):
         self._decision_only = bool(self.get_parameter("decision_only").value)
         self._separator = self.get_parameter("room_separator").value
         self._strategy = self.get_parameter("room_strategy").value
+        self._room_source = self.get_parameter("room_source").value
+        # waypoint -> parent room, rebuilt from each graph snapshot.
+        self._room_map: dict[str, str] | None = None
         self._server_wait_timeout = float(
             self.get_parameter("server_wait_timeout_s").value
         )
@@ -197,7 +205,9 @@ class EvaluationCollectorNode(Node):
             graph=graph,
             score=float(outcome.score),
         )
-        return annotate_accuracy(result, self._separator, self._strategy)
+        return annotate_accuracy(
+            result, self._separator, self._strategy, self._room_map
+        )
 
     # ── Goal construction / dispatch ──────────────────────────────────────── #
 
@@ -244,6 +254,11 @@ class EvaluationCollectorNode(Node):
         res = self._await(future, self._service_timeout)
         if res is None or not res.success:
             return GraphContext()
+        if self._room_source == "graph":
+            self._room_map = build_room_map(
+                [(e.type, e.source_node, e.target_node) for e in res.edges],
+                {w.node_id for w in res.waypoints},
+            )
         return GraphContext(total_nodes=res.total_nodes, total_edges=res.total_edges)
 
     # ── Anti-deadlock future waiter (executor already spinning elsewhere) ──── #
@@ -303,7 +318,9 @@ class EvaluationCollectorNode(Node):
             return None
         ts = time.strftime("%Y%m%d_%H%M%S")
         path = os.path.join(self._output_dir, f"{self._prefix}_{ts}.csv")
-        write_csv(path, results, self._separator, self._strategy)
+        # room_map must reach write_csv: aggregate() re-annotates defensively
+        # and would otherwise clobber graph-based room_correct values.
+        write_csv(path, results, self._separator, self._strategy, self._room_map)
         self.get_logger().info(f"Wrote {len(results)} results to '{path}'.")
         return path
 
@@ -321,7 +338,9 @@ class EvaluationCollectorNode(Node):
             hardware=hardware if hardware is not None else self._hw.sample(),
             graph=graph,
         )
-        return annotate_accuracy(result, self._separator, self._strategy)
+        return annotate_accuracy(
+            result, self._separator, self._strategy, self._room_map
+        )
 
 
 def main(args=None) -> None:

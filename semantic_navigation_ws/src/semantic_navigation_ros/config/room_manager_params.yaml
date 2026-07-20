@@ -1,0 +1,18 @@
+room_manager:
+  ros__parameters:
+    # Room definitions persist here; use ONE FILE PER SCENARIO so rooms from
+    # one map never leak into another's evaluation.
+    rooms_file: "~/.ros/semantic_maps/rooms.yaml"
+
+    clicked_point_topic: "/clicked_point"   # RViz 'Publish Point' tool
+    add_room_service: "add_room"            # served by knowledge_graph_bridge
+    marker_topic: "room_markers"            # latched rectangles + labels
+    frame_id: "map"
+
+    line_width: 0.06
+    text_scale: 0.35
+    rect_color: [0.9, 0.6, 0.1, 1.0]
+    text_color: [1.0, 1.0, 1.0, 1.0]
+
+    service_wait_timeout_s: 10.0
+    click_timeout_s: 120.0

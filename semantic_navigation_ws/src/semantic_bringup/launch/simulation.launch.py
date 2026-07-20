@@ -25,6 +25,9 @@ Launch arguments
   camera_mast_z  (default: 0.45) camera height [m]; the robot is spawned from
                  the vendored turtlebot3_waffle_semantic model, not the stock
                  turtlebot3_gazebo one
+  world_name     (default: "default") the <world name=...> inside the .world
+                 file — every stock world here uses "default"; needed for the
+                 gz set_pose service path
 """
 
 import glob
@@ -118,6 +121,11 @@ def generate_launch_description() -> LaunchDescription:
         "camera_mast_z", default_value="0.45",
         description="Camera height above base_footprint [m] (stock waffle: 0.107).",
     )
+    world_name_arg = DeclareLaunchArgument(
+        "world_name", default_value="default",
+        description="The <world name=...> declared inside the .world file — "
+                    "used for gz service paths like /world/<name>/set_pose.",
+    )
 
     use_sim_time = LaunchConfiguration("use_sim_time")
     map_yaml     = LaunchConfiguration("map")
@@ -148,9 +156,16 @@ def generate_launch_description() -> LaunchDescription:
     # Environment variables
     # ------------------------------------------------------------------ #
     set_tb3_model = SetEnvironmentVariable("TURTLEBOT3_MODEL", "waffle")
+    # Append (never overwrite): a pre-set GZ_SIM_RESOURCE_PATH lets users add
+    # model dirs for extra worlds (e.g. cloned AWS bookstore/warehouse), and
+    # the turtlebot3_gazebo models are needed by the turtlebot3_* worlds.
     set_gz_resource_path = SetEnvironmentVariable(
         "GZ_SIM_RESOURCE_PATH",
-        os.path.join(_aws_share, "models"),
+        os.pathsep.join(p for p in [
+            os.environ.get("GZ_SIM_RESOURCE_PATH", ""),
+            os.path.join(_aws_share, "models"),
+            os.path.join(_tb3_share, "models"),
+        ] if p),
     )
 
     # ------------------------------------------------------------------ #
@@ -186,6 +201,7 @@ def generate_launch_description() -> LaunchDescription:
     # TF caveat: robot_state_publisher keeps the stock URDF camera height
     # (~0.12 m); fine while nothing consumes camera-frame TF.
     def _spawn_robot(context):
+        world_name = LaunchConfiguration("world_name").perform(context)
         camera_z = float(LaunchConfiguration("camera_mast_z").perform(context))
         mast_bottom = 0.107          # stock camera height ≈ robot top plate
         mast_length = max(camera_z - mast_bottom, 0.001)
@@ -217,7 +233,7 @@ def generate_launch_description() -> LaunchDescription:
         reset_robot_pose = ExecuteProcess(
             cmd=[
                 "gz", "service",
-                "-s", "/world/semantic_test/set_pose",
+                "-s", f"/world/{world_name}/set_pose",
                 "--reqtype", "gz.msgs.Pose",
                 "--reptype", "gz.msgs.Boolean",
                 "--timeout", "2000",
@@ -491,6 +507,7 @@ def generate_launch_description() -> LaunchDescription:
         map_arg,
         world_arg,
         camera_mast_arg,
+        world_name_arg,
         # Environment
         set_tb3_model,
         set_gz_resource_path,

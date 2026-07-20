@@ -176,12 +176,12 @@ class WaypointCaptureNode(Node):
             return self._cancelled(goal_handle, result, sm.reason)
 
         # Step 4 – store
-        # Use the human label as the node_id when provided (e.g. "cocina_01"),
-        # so downstream room-level metrics can derive the room via room_key().
-        # Fall back to a unique timestamped id when no label is given.
+        # Use the human label as the node_id when provided (e.g. "cocina_01").
+        # With an empty label the BRIDGE names the waypoint after the room
+        # containing its pose ("<room>_<NN>", timestamped fallback outside
+        # rooms) and returns the final id in the response.
         label = goal_handle.request.label.strip()
-        waypoint_id = label if label else f"waypoint_{time.time_ns()}"
-        store_req = self._build_store_req(waypoint_id, pose, features)
+        store_req = self._build_store_req(label, pose, features)
         store = self._call_service(self._store_client, store_req)
         if store is None or not store.success:
             msg = "service unavailable/timeout" if store is None else store.message
@@ -189,6 +189,7 @@ class WaypointCaptureNode(Node):
             return self._abort(goal_handle, result, sm.reason)
         sm.store_ok()
         self._publish_feedback(goal_handle, STAGE_STORED)
+        waypoint_id = store.node_id or label
 
         # Done
         goal_handle.succeed()

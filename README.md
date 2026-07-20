@@ -250,8 +250,12 @@ and the service/action clients in separate callback groups (no
 mutation to a SQLite database (WAL mode). Per stored waypoint:
 
 - `pose_x/y/z`, `orient_x/y/z/w` — pose in the `map` frame
-- `visual_embedding` — SigLIP embedding stored **natively as a float vector**
-  (not CSV)
+- `visual_embedding` — SigLIP embedding stored as a **JSON string property**
+  (typed, not CSV). Vector properties are deliberately avoided: the vendored
+  `knowledge_graph` cannot reconstruct ROS msg vector fields (`array.array`),
+  which would crash every `graph_update` receiver (rqt viewer, terminal) and
+  the bridge itself on DB reload; legacy float-list rows are migrated to JSON
+  on load
 - detected objects — stored as separate `object` nodes linked by `CONTAINS`
   edges; `get_waypoints` reconstructs the object label list by walking those edges
 
@@ -284,6 +288,11 @@ colcon test-result --verbose
 # semantic_voice core (intent parser + speech segmenter), plain pytest
 python3 -m pytest src/semantic_voice/test -v
 ```
+
+> **Full experiment guide:** [docs/TESTING_GUIDE.md](docs/TESTING_GUIDE.md)
+> (in Spanish) covers end-to-end testing, defining room zones in RViz,
+> evaluation campaigns/metrics, and running the additional scenarios
+> (turtlebot3_house, AWS bookstore/warehouse).
 
 ---
 

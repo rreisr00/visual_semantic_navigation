@@ -26,6 +26,9 @@
   <!-- Project interfaces -->
   <exec_depend>semantic_interfaces</exec_depend>
 
+  <!-- Pure room-zone logic (Room dataclass + point-in-rect) -->
+  <exec_depend>semantic_navigation_core</exec_depend>
+
   <export>
     <build_type>ament_python</build_type>
   </export>

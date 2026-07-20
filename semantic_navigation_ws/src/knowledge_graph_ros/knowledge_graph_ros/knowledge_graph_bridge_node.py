@@ -15,6 +15,12 @@ Service
     Request : node_id, pose (PoseStamped), visual_embedding (float32[]),
               detected_objects (string[])
     Response: success (bool), message (string)
+  /add_room  (semantic_interfaces/srv/AddRoom)
+    Defines a rectangular room zone: creates a type="room" node whose
+    rectangle lives in min_x/min_y/max_x/max_y properties, then sweeps
+    every existing waypoint — inside → CONTAINS room->waypoint edge,
+    outside-but-linked → edge removed (redefinition is self-correcting).
+    New waypoints are classified on /store_waypoint.
 
 SQLite schema
 -------------
@@ -31,6 +37,7 @@ import json
 import os
 import sqlite3
 import threading
+import time
 from typing import List, Optional
 
 import rclpy
@@ -46,7 +53,14 @@ from knowledge_graph_msgs.msg import Node as NodeMsg, Edge as EdgeMsg
 from knowledge_graph_msgs.msg import Content, Property
 
 from semantic_interfaces.msg import WaypointInfo, GraphEdge
-from semantic_interfaces.srv import StoreWaypoint, GetWaypoints, GetGraphSnapshot
+from semantic_interfaces.srv import (
+    AddRoom,
+    GetGraphSnapshot,
+    GetWaypoints,
+    StoreWaypoint,
+)
+
+from semantic_navigation_core.rooms import Room, next_instance_name
 
 
 class KnowledgeGraphBridgeNode(LifecycleNode):
@@ -67,6 +81,7 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
         self._store_srv = None
         self._get_waypoints_srv = None
         self._snapshot_srv = None
+        self._add_room_srv = None
 
         # Serialise all graph/SQLite access through one callback group so the
         # store and query services never run concurrently against the graph.
@@ -131,9 +146,13 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
             GetGraphSnapshot, "get_graph_snapshot", self._handle_get_graph_snapshot,
             callback_group=self._graph_cbg,
         )
+        self._add_room_srv = self.create_service(
+            AddRoom, "add_room", self._handle_add_room,
+            callback_group=self._graph_cbg,
+        )
         self.get_logger().info(
-            "Activated – /store_waypoint, /get_waypoints and /get_graph_snapshot "
-            "services ready."
+            "Activated – /store_waypoint, /get_waypoints, /get_graph_snapshot "
+            "and /add_room services ready."
         )
         return super().on_activate(state)
 
@@ -147,6 +166,9 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
         if self._snapshot_srv is not None:
             self.destroy_service(self._snapshot_srv)
             self._snapshot_srv = None
+        if self._add_room_srv is not None:
+            self.destroy_service(self._add_room_srv)
+            self._add_room_srv = None
         return super().on_deactivate(state)
 
     def on_cleanup(self, state: State) -> TransitionCallbackReturn:
@@ -167,26 +189,57 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
         request: StoreWaypoint.Request,
         response: StoreWaypoint.Response,
     ) -> StoreWaypoint.Response:
+        node_id = request.node_id.strip()
         try:
-            self._upsert_waypoint_node(request)
+            if not node_id:
+                # No label given: name the waypoint after the room containing
+                # its pose ("<room>_<NN>"); timestamped fallback outside rooms.
+                node_id = self._auto_name_waypoint(
+                    float(request.pose.pose.position.x),
+                    float(request.pose.pose.position.y),
+                )
+            self._upsert_waypoint_node(node_id, request)
             if request.detected_objects:
                 self._upsert_object_nodes_and_edges(
-                    request.node_id, list(request.detected_objects)
+                    node_id, list(request.detected_objects)
                 )
+            self._assign_rooms_for_waypoint(
+                node_id,
+                float(request.pose.pose.position.x),
+                float(request.pose.pose.position.y),
+            )
             response.success = True
             response.message = "OK"
+            response.node_id = node_id
         except Exception as exc:  # noqa: BLE001
-            self.get_logger().error(f"StoreWaypoint failed for '{request.node_id}': {exc}")
+            self.get_logger().error(f"StoreWaypoint failed for '{node_id}': {exc}")
             response.success = False
             response.message = str(exc)
         return response
 
-    def _upsert_waypoint_node(self, request: StoreWaypoint.Request) -> None:
+    def _auto_name_waypoint(self, x: float, y: float) -> str:
+        """Room-aware id: "<room>_<NN>" if (x, y) lies inside a room."""
+        for node in self._graph.get_nodes():
+            if node.get_type() != "room":
+                continue
+            room = self._room_from_node(node)
+            if room.contains(x, y):
+                waypoint_names = [
+                    n.get_name()
+                    for n in self._graph.get_nodes()
+                    if n.get_type() == "waypoint"
+                ]
+                return next_instance_name(room.room_id, waypoint_names)
+        return f"waypoint_{time.time_ns()}"
+
+    def _upsert_waypoint_node(
+        self, node_id: str, request: StoreWaypoint.Request
+    ) -> None:
         pose = request.pose.pose
-        if self._graph.has_node(request.node_id):
-            node = self._graph.get_node(request.node_id)
+        if self._graph.has_node(node_id):
+            node = self._graph.get_node(node_id)
         else:
-            node = self._graph.create_node(request.node_id, "waypoint")
+            node = self._graph.create_node(node_id, "waypoint")
 
         node.set_property("pose_x",    float(pose.position.x))
         node.set_property("pose_y",    float(pose.position.y))
@@ -195,8 +248,28 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
         node.set_property("orient_y",  float(pose.orientation.y))
         node.set_property("orient_z",  float(pose.orientation.z))
         node.set_property("orient_w",  float(pose.orientation.w))
-        # Store embedding natively as a float vector (VFLOAT) for direct retrieval.
-        node.set_property("visual_embedding", list(request.visual_embedding))
+        # Store the embedding as a JSON STRING, never as a vector property:
+        # the vendored knowledge_graph rejects ROS msg vector fields on the
+        # receiving side (array.array is not list), so a VDOUBLE property
+        # crashes every other KnowledgeGraph instance (rqt viewer, terminal)
+        # on the graph_update topic and the bridge itself on DB reload.
+        emb_json = json.dumps([float(v) for v in request.visual_embedding])
+        if node.has_property("visual_embedding") and not isinstance(
+            node.get_property("visual_embedding"), str
+        ):
+            # Legacy node with a list-typed property: the library forbids
+            # changing a property's type, so rebuild the node (edges are
+            # re-created right after by the object/room assignment steps).
+            self._graph.remove_node(node)
+            node = self._graph.create_node(node_id, "waypoint")
+            for k, v in (
+                ("pose_x", pose.position.x), ("pose_y", pose.position.y),
+                ("pose_z", pose.position.z),
+                ("orient_x", pose.orientation.x), ("orient_y", pose.orientation.y),
+                ("orient_z", pose.orientation.z), ("orient_w", pose.orientation.w),
+            ):
+                node.set_property(k, float(v))
+        node.set_property("visual_embedding", emb_json)
         self._graph.update_node(node)
 
     def _upsert_object_nodes_and_edges(
@@ -217,6 +290,113 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
             if not self._graph.has_edge("CONTAINS", waypoint_id, obj_id):
                 edge = self._graph.create_edge("CONTAINS", waypoint_id, obj_id)
                 self._graph.update_edge(edge)
+
+    # ------------------------------------------------------------------ #
+    # Rooms: /add_room service + waypoint classification
+    # Edge direction is load-bearing: room is SOURCE, waypoint is TARGET
+    # ("CONTAINS" room→waypoint). Object edges are waypoint→object, so
+    # _collect_object_labels (outgoing from the waypoint) stays clean and
+    # a CONTAINS edge *targeting* a waypoint always comes from a room.
+    # ------------------------------------------------------------------ #
+
+    def _handle_add_room(
+        self,
+        request: AddRoom.Request,
+        response: AddRoom.Response,
+    ) -> AddRoom.Response:
+        room_id = request.room_id.strip()
+        if not room_id:
+            response.success = False
+            response.message = "room_id must not be empty"
+            return response
+        room = Room(
+            room_id, request.min_x, request.min_y, request.max_x, request.max_y
+        ).normalized()
+        if room.min_x == room.max_x or room.min_y == room.max_y:
+            response.success = False
+            response.message = "degenerate rectangle (zero width or height)"
+            return response
+
+        try:
+            # Node must exist (and be persisted) before any edge touches it:
+            # create_edge raises on missing endpoints and the SQLite edges
+            # table references nodes(name).
+            if self._graph.has_node(room_id):
+                node = self._graph.get_node(room_id)
+            else:
+                node = self._graph.create_node(room_id, "room")
+            node.set_property("min_x", float(room.min_x))
+            node.set_property("min_y", float(room.min_y))
+            node.set_property("max_x", float(room.max_x))
+            node.set_property("max_y", float(room.max_y))
+            self._graph.update_node(node)
+
+            assigned = self._sweep_room(room)
+            response.success = True
+            response.message = "OK"
+            response.waypoints_assigned = assigned
+            self.get_logger().info(
+                f"Room '{room_id}' [{room.min_x:.2f},{room.min_y:.2f}]–"
+                f"[{room.max_x:.2f},{room.max_y:.2f}] → "
+                f"{assigned} waypoint(s) assigned."
+            )
+        except Exception as exc:  # noqa: BLE001
+            self.get_logger().error(f"AddRoom failed for '{room_id}': {exc}")
+            response.success = False
+            response.message = str(exc)
+        return response
+
+    def _sweep_room(self, room: Room) -> int:
+        """Reconcile CONTAINS room→waypoint edges against the rectangle."""
+        assigned = 0
+        for node in self._graph.get_nodes():
+            if node.get_type() != "waypoint":
+                continue
+            wp_id = node.get_name()
+            inside = room.contains(
+                float(_prop(node, "pose_x", 0.0)), float(_prop(node, "pose_y", 0.0))
+            )
+            has_edge = self._graph.has_edge("CONTAINS", room.room_id, wp_id)
+            if inside and not has_edge:
+                edge = self._graph.create_edge("CONTAINS", room.room_id, wp_id)
+                self._graph.update_edge(edge)
+            elif not inside and has_edge:
+                # Room was redefined with a new rectangle — drop stale links.
+                self._graph.remove_edge(
+                    self._graph.get_edge("CONTAINS", room.room_id, wp_id)
+                )
+            if inside:
+                assigned += 1
+        return assigned
+
+    def _assign_rooms_for_waypoint(self, waypoint_id: str, x: float, y: float) -> None:
+        """Link a (re)stored waypoint to every room whose rectangle holds it."""
+        for node in self._graph.get_nodes():
+            if node.get_type() != "room":
+                continue
+            room = self._room_from_node(node)
+            has_edge = self._graph.has_edge("CONTAINS", room.room_id, waypoint_id)
+            if room.contains(x, y):
+                if not has_edge:
+                    edge = self._graph.create_edge(
+                        "CONTAINS", room.room_id, waypoint_id
+                    )
+                    self._graph.update_edge(edge)
+            elif has_edge:
+                # Re-captured waypoint moved out of this room.
+                self._graph.remove_edge(
+                    self._graph.get_edge("CONTAINS", room.room_id, waypoint_id)
+                )
+
+    @staticmethod
+    def _room_from_node(node: Node) -> Room:
+        return Room(
+            room_id=node.get_name(),
+            min_x=float(_prop(node, "min_x", 0.0)),
+            min_y=float(_prop(node, "min_y", 0.0)),
+            max_x=float(_prop(node, "max_x", 0.0)),
+            max_y=float(_prop(node, "max_y", 0.0)),
+        )
 
     # ------------------------------------------------------------------ #
     # /get_waypoints service callback
@@ -293,8 +473,11 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
         pose.pose.orientation.w = float(_prop(node, "orient_w", 1.0))
         info.pose = pose
 
-        # visual_embedding stored natively as a VFLOAT vector → list[float].
-        embedding = _prop(node, "visual_embedding", [])
+        # visual_embedding is stored as a JSON string (legacy graphs may still
+        # hold a float list in memory — accept both).
+        embedding = _prop(node, "visual_embedding", "")
+        if isinstance(embedding, str):
+            embedding = json.loads(embedding) if embedding else []
         info.visual_embedding = [float(v) for v in embedding] if embedding else []
 
         # Reconstruct detected objects from CONTAINS edges → object nodes' labels.
@@ -558,12 +741,14 @@ def _deserialize_properties(props_str: str) -> List[Property]:
             if isinstance(first, bool):
                 p.value.type = Content.VBOOL
                 p.value.bool_vector = value
-            elif isinstance(first, int):
-                p.value.type = Content.VINT
-                p.value.int_vector = value
-            elif isinstance(first, float):
-                p.value.type = Content.VFLOAT
-                p.value.float_vector = value
+            elif isinstance(first, (int, float)):
+                # Migrate legacy numeric vectors (old DBs stored the embedding
+                # as a float list) to JSON strings: the vendored knowledge_graph
+                # rejects msg vector fields (array.array) when reconstructing
+                # nodes, so VINT/VFLOAT/VDOUBLE properties would crash the
+                # bridge here on load and every graph_update receiver later.
+                p.value.type = Content.STRING
+                p.value.string_value = json.dumps(value)
             elif isinstance(first, str):
                 p.value.type = Content.VSTRING
                 p.value.string_vector = value
