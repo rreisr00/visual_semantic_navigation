@@ -1,0 +1,6 @@
+scene_id: scene_03
+enabled: false
+graph_db: "${SCENE_03_GRAPH_DB}"
+queries_file: experiments/simulation/config/queries/scene_03_queries.yaml
+metadata: {}
+

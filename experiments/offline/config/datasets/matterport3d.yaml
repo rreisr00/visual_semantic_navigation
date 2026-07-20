@@ -1,0 +1,17 @@
+dataset_id: matterport3d
+adapter: matterport3d_r2r
+root: "${MATTERPORT3D_ROOT}"
+r2r_root: "${R2R_ROOT}"
+queries_file: experiments/offline/config/queries/matterport3d_queries.yaml
+enabled: true
+split:
+  name: all
+  split_file: null
+  connectivity_dir: connectivity
+  view_angles_degrees: [0, 90, 180, 270]
+  building_splits:
+    train: splits/train_scans.txt
+    validation: splits/validation_scans.txt
+    test: splits/test_scans.txt
+annotations:
+  file: null

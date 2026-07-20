@@ -1,0 +1,19 @@
+dataset_id: sunrgbd
+adapter: sunrgbd
+root: "${SUNRGBD_ROOT}"
+queries_file: experiments/offline/config/queries/sunrgbd_queries.yaml
+enabled: true
+split:
+  name: validation
+  split_file: null
+annotations:
+  metadata_file: null
+  class_mapping:
+    chair: chair
+    sofa: couch
+    table: dining table
+    bed: bed
+    toilet: toilet
+    sink: sink
+    television: tv
+

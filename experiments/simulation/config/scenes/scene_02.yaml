@@ -1,0 +1,7 @@
+scene_id: turtlebot3_house
+enabled: false
+graph_db: "~/.ros/semantic_maps/knowledge_graph_turtlebot3_house.db"
+queries_file: experiments/simulation/config/queries/scene_02_queries.yaml
+metadata:
+  rooms_file: "~/.ros/semantic_maps/rooms_turtlebot3_house.yaml"
+  images_dir: "~/semantic_dataset_turtlebot3_house"

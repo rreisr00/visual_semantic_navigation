@@ -33,3 +33,10 @@ ultralytics>=8.0.0
 faster-whisper>=1.0
 
 sounddevice>=0.4
+
+# Offline and campaign-analysis notebooks (experiments/{offline,simulation})
+pandas>=2.0
+networkx>=3.0
+nbformat>=5.9
+nbclient>=0.9
+pyarrow>=14.0

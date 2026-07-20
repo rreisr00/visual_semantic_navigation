@@ -26,9 +26,12 @@ parameter loaded from ``config/evaluation_params.yaml`` — nothing is hardcoded
 from __future__ import annotations
 
 import os
+import json
+import subprocess
 import threading
 import time
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
 import rclpy
 import yaml
@@ -84,8 +87,18 @@ class EvaluationCollectorNode(Node):
         self.declare_parameter("action_name", "navigate_to_semantic_goal")
         self.declare_parameter("snapshot_service_name", "get_graph_snapshot")
         self.declare_parameter("test_suite_path", "")
-        self.declare_parameter("output_dir", "~/ros2_evaluation_results")
-        self.declare_parameter("output_filename_prefix", "evaluation")
+        self.declare_parameter(
+            "output_dir", "~/visual_semantic_navigation/experiments/simulation/campaigns"
+        )
+        self.declare_parameter("campaign_id", "")
+        self.declare_parameter("scene_id", "scene_unset")
+        self.declare_parameter("run_id", "")
+        self.declare_parameter("seed", 42)
+        self.declare_parameter("method", "single_view_siglip")
+        self.declare_parameter("start_pose_id", "start_pose_unset")
+        self.declare_parameter("query_suite_id", "")
+        self.declare_parameter("frozen_config_hash", "")
+        self.declare_parameter("success_semantics", "")
         self.declare_parameter("decision_only", False)
         self.declare_parameter("room_separator", "_")
         self.declare_parameter("room_strategy", "strip_last")
@@ -105,7 +118,19 @@ class EvaluationCollectorNode(Node):
             self.get_parameter("test_suite_path").value
         )
         self._output_dir = os.path.expanduser(self.get_parameter("output_dir").value)
-        self._prefix = self.get_parameter("output_filename_prefix").value
+        self._scene_id = str(self.get_parameter("scene_id").value)
+        self._method = str(self.get_parameter("method").value)
+        self._campaign_id = str(self.get_parameter("campaign_id").value)
+        self._run_id = str(self.get_parameter("run_id").value)
+        self._seed = int(self.get_parameter("seed").value)
+        self._start_pose_id = str(self.get_parameter("start_pose_id").value)
+        self._query_suite_id = str(self.get_parameter("query_suite_id").value)
+        self._frozen_config_hash = str(
+            self.get_parameter("frozen_config_hash").value
+        )
+        self._success_semantics = str(
+            self.get_parameter("success_semantics").value
+        )
         self._decision_only = bool(self.get_parameter("decision_only").value)
         self._separator = self.get_parameter("room_separator").value
         self._strategy = self.get_parameter("room_strategy").value
@@ -311,18 +336,62 @@ class EvaluationCollectorNode(Node):
         return self._bridge.cv2_to_imgmsg(frame, encoding="bgr8")
 
     def _export(self, results: list[TestCaseResult]) -> str | None:
+        timestamp = datetime.now(timezone.utc)
+        stamp = timestamp.strftime("%Y%m%dT%H%M%SZ")
+        run_id = self._run_id or f"run_{stamp}"
+        campaign_id = self._campaign_id or f"{self._scene_id}_{self._method}"
+        run_dir = os.path.join(self._output_dir, self._scene_id, run_id)
         try:
-            os.makedirs(self._output_dir, exist_ok=True)
+            os.makedirs(run_dir, exist_ok=False)
         except OSError as exc:
             self.get_logger().error(f"Cannot create output dir: {exc}")
             return None
-        ts = time.strftime("%Y%m%d_%H%M%S")
-        path = os.path.join(self._output_dir, f"{self._prefix}_{ts}.csv")
+        path = os.path.join(run_dir, "evaluation.csv")
         # room_map must reach write_csv: aggregate() re-annotates defensively
         # and would otherwise clobber graph-based room_correct values.
         write_csv(path, results, self._separator, self._strategy, self._room_map)
+        query_suite_id = self._query_suite_id or os.path.basename(
+            self._test_suite_path
+        )
+        metadata = {
+            "campaign_id": campaign_id,
+            "scene_id": self._scene_id,
+            "run_id": run_id,
+            "seed": self._seed,
+            "method": self._method,
+            "start_pose_id": self._start_pose_id,
+            "query_suite_id": query_suite_id,
+            "frozen_config_hash": self._frozen_config_hash,
+            "git_commit": self._git_commit(),
+            "timestamp": timestamp.isoformat(),
+            "status": "complete",
+        }
+        if self._success_semantics:
+            metadata["success_semantics"] = self._success_semantics
+        with open(os.path.join(run_dir, "campaign.yaml"), "w", encoding="utf-8") as handle:
+            yaml.safe_dump(metadata, handle, sort_keys=False)
+        manifest = {
+            **metadata,
+            "decision_only": self._decision_only,
+            "test_suite_path": self._test_suite_path,
+            "n_cases": len(results),
+            "room_source": self._room_source,
+        }
+        with open(os.path.join(run_dir, "manifest.json"), "w", encoding="utf-8") as handle:
+            json.dump(manifest, handle, indent=2)
         self.get_logger().info(f"Wrote {len(results)} results to '{path}'.")
         return path
+
+    @staticmethod
+    def _git_commit() -> str:
+        try:
+            completed = subprocess.run(
+                ["git", "rev-parse", "HEAD"], capture_output=True, text=True,
+                timeout=5, check=False,
+            )
+            return completed.stdout.strip() if completed.returncode == 0 else "unknown"
+        except (OSError, subprocess.TimeoutExpired):
+            return "unknown"
 
     def _failed_result(
         self, case: _TestCase, graph: GraphContext, reason: str, hardware=None

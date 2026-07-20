@@ -1,0 +1,27 @@
+experiment:
+  name: ros2_campaign_analysis
+  frozen_retrieval_config: experiments/offline/results/frozen_retrieval_config.yaml
+  expected_config_hash: null
+
+paths:
+  campaigns_root: experiments/simulation/campaigns
+  results_root: experiments/simulation/results
+  manifests_root: experiments/simulation/manifests
+
+scenes:
+  configs_dir: experiments/simulation/config/scenes
+
+campaign_analysis:
+  required_repetitions: 5
+  confidence_level: 0.95
+  bootstrap_samples: 2000
+  nearby_topological_distance: 1
+  nearby_metric_distance: 1.0
+  include_incomplete_runs: false
+
+graph_analysis:
+  check_components: true
+  check_isolated_nodes: true
+  check_embedding_dimensions: true
+  check_invalid_edges: true
+

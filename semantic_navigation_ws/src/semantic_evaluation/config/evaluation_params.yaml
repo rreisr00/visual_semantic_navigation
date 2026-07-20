@@ -9,8 +9,17 @@ evaluation_collector:
 
     # Campaign I/O.
     test_suite_path: ""                           # set to an absolute test_suite.yaml
-    output_dir: "~/ros2_evaluation_results"
-    output_filename_prefix: "evaluation"
+    output_dir: "~/visual_semantic_navigation/experiments/simulation/campaigns"
+    campaign_id: ""
+    scene_id: "scene_unset"
+    run_id: ""
+    seed: 42
+    method: "single_view_siglip"
+    start_pose_id: "start_pose_unset"
+    query_suite_id: ""
+    frozen_config_hash: ""
+    # Leave empty unless the action result's success field has been verified.
+    success_semantics: ""
 
     # Decision-only (dry_run): orchestrator ranks but does not drive Nav2;
     # navigation_s comes back as NaN.
