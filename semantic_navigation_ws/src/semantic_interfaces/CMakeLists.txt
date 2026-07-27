@@ -10,10 +10,15 @@ find_package(rosidl_default_generators REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(action_msgs REQUIRED)
+find_package(builtin_interfaces REQUIRED)
 
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/WaypointInfo.msg"
   "msg/GraphEdge.msg"
+  "msg/ObjectDetection.msg"
+  "msg/SemanticRelation.msg"
+  "msg/ObservationInfo.msg"
+  "msg/RetrievalCandidate.msg"
   "srv/GetEmbedding.srv"
   "srv/GetVisualFeatures.srv"
   "srv/StoreWaypoint.srv"
@@ -22,7 +27,7 @@ rosidl_generate_interfaces(${PROJECT_NAME}
   "srv/AddRoom.srv"
   "action/CaptureWaypoint.action"
   "action/NavigateToSemanticGoal.action"
-  DEPENDENCIES sensor_msgs geometry_msgs action_msgs
+  DEPENDENCIES sensor_msgs geometry_msgs action_msgs builtin_interfaces
 )
 
 ament_package()

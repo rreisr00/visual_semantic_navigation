@@ -1,11 +1,23 @@
 # Goal: capture the current pose + visual features as a semantic waypoint.
 string label            # Optional human label (may be empty).
+string scene_id
+float32 requested_yaw
+float32[] relative_view_yaws_deg
+bool rotate_robot
 ---
 # Result
 bool success
 string node_id
 string message
+string observation_id
+bool merged_with_existing
+string[] observation_ids
+uint32 captured_views
 ---
 # Feedback: capture-pipeline stage
-# one of: "got_image", "got_pose", "encoded", "stored"
+# one of: "rotating", "got_image", "got_pose", "encoded", "stored"
 string stage
+uint32 current_view
+uint32 total_views
+float32 requested_yaw
+float32 measured_yaw

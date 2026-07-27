@@ -1,0 +1,16 @@
+string observation_id
+string node_id
+string image_path
+builtin_interfaces/Time timestamp
+string camera_frame
+geometry_msgs/PoseStamped camera_pose
+string depth_camera_frame
+geometry_msgs/PoseStamped depth_camera_pose
+float32 requested_yaw
+float32 measured_yaw
+float32 angular_error
+bool image_valid
+bool depth_valid
+float32[] image_embedding
+ObjectDetection[] detections
+SemanticRelation[] relations

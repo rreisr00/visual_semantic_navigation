@@ -1,0 +1,9 @@
+string subject_id
+string predicate
+string object_id
+float32 confidence
+string reference_frame
+string source_observation_id
+string relation_type
+builtin_interfaces/Time timestamp
+

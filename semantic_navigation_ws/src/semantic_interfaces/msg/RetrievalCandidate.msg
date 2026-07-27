@@ -1,0 +1,9 @@
+string node_id
+geometry_msgs/PoseStamped pose
+float32 score
+float32 global_similarity
+float32 object_match_score
+float32 crop_similarity
+float32 relation_match_score
+float32 room_match_score
+

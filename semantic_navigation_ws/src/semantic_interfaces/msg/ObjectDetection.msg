@@ -1,0 +1,9 @@
+string object_id
+string class_name
+float32 confidence
+float32[4] bounding_box
+float32[] crop_embedding
+float32[2] position_2d
+float32[3] position_3d
+bool position_3d_valid
+string position_3d_frame

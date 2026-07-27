@@ -1,5 +1,6 @@
 # Request: optional node-type filter ("" returns every node).
 string class_filter
+string scene_id
 ---
 # Response: typed waypoints (embedding + objects already reconstructed).
 WaypointInfo[] waypoints

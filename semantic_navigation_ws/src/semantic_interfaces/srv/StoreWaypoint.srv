@@ -2,10 +2,15 @@
 # room containing its pose ("<room>_<NN>"), falling back to a timestamped id
 # when the pose lies outside every room. The final id is returned in node_id.
 string node_id
+string scene_id
 geometry_msgs/PoseStamped pose
+geometry_msgs/PoseStamped navigation_goal_pose
 float32[] visual_embedding
 string[] detected_objects
+ObservationInfo observation
+string configuration_hash
 ---
 bool success
 string message
 string node_id   # final id under which the waypoint was stored
+bool merged_with_existing
