@@ -18,6 +18,12 @@ from semantic_navigation_core.multiview import (
     score_node_views,
 )
 from semantic_navigation_core.relations import infer_relations, match_relations
+from semantic_navigation_core.query_semantics import (
+    QuerySemantics,
+    extract_query_semantics,
+    normalize_query_text,
+)
+from semantic_navigation_core.path_metrics import path_length_2d, spl
 from semantic_navigation_core.retrieval import (
     HybridWeights,
     RetrievalConfig,
@@ -45,6 +51,11 @@ __all__ = [
     "score_node_views",
     "infer_relations",
     "match_relations",
+    "QuerySemantics",
+    "extract_query_semantics",
+    "normalize_query_text",
+    "path_length_2d",
+    "spl",
     "HybridWeights",
     "RetrievalConfig",
     "SemanticQuery",

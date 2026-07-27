@@ -7,6 +7,7 @@ import pytest
 
 from semantic_navigation_core.graph_store import (
     load_records,
+    load_metadata,
     load_rooms,
     load_semantic_nodes,
     save_semantic_graph,
@@ -116,3 +117,40 @@ def test_room_without_rectangle_still_gets_a_node(tmp_path):
 def test_missing_db_raises(tmp_path):
     with pytest.raises(FileNotFoundError):
         load_records(str(tmp_path / "absent.db"))
+
+
+def test_v2_round_trip_preserves_multiview_metadata_and_topology(tmp_path):
+    db = str(tmp_path / "graph.db")
+    first = make_node("wp_01")
+    first.scene_id = "house"
+    first.configuration_hash = "abc123"
+    first.navigation_position = (1.2, 2.1, 0.0)
+    first.neighbors = ["wp_02"]
+    first.observations.append(Observation(
+        observation_id="wp_01__v1",
+        embedding=np.array([0.8, 0.6], dtype=np.float32),
+        timestamp=12.25,
+        camera_frame="camera_rgb_optical_frame",
+        camera_position=(1.0, 2.0, 0.45),
+        camera_orientation=(0.0, 0.0, 0.0, 1.0),
+        requested_yaw=1.57,
+        measured_yaw=1.55,
+        angular_error=0.02,
+        objects=[ObjectObservation(
+            label="cup",
+            object_id="persistent_cup",
+            embedding=np.array([1.0, 0.0], dtype=np.float32),
+        )],
+    ))
+    second = make_node("wp_02")
+    second.scene_id = "house"
+    save_semantic_graph(db, [first, second], include_relations=True)
+
+    loaded = {node.node_id: node for node in load_semantic_nodes(db)}
+    assert len(loaded["wp_01"].observations) == 2
+    assert loaded["wp_01"].scene_id == "house"
+    assert loaded["wp_01"].configuration_hash == "abc123"
+    assert loaded["wp_01"].navigation_position == (1.2, 2.1, 0.0)
+    assert loaded["wp_01"].neighbors == ["wp_02"]
+    assert loaded["wp_01"].observations[1].camera_frame == "camera_rgb_optical_frame"
+    assert load_metadata(db)["schema_version"] == "2"

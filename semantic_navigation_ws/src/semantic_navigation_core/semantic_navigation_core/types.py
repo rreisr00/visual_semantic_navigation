@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 
 import numpy as np
 
@@ -49,6 +50,12 @@ class SpatialRelation:
     predicate: str
     obj: str
     confidence: float = 1.0
+    subject_id: str = ""
+    object_id: str = ""
+    reference_frame: str = "camera_optical_frame"
+    source_observation_id: str = ""
+    relation_type: str = "visual_2d_hypothesis"
+    timestamp: float = 0.0
 
 
 @dataclass
@@ -67,6 +74,13 @@ class ObjectObservation:
     confidence: float = 1.0
     box: tuple[float, float, float, float] | None = None
     embedding: np.ndarray | None = None
+    object_id: str = ""
+    position_2d: tuple[float, float] | None = None
+    position_3d: tuple[float, float, float] | None = None
+    position_3d_frame: str = ""
+    observation_ids: list[str] = field(default_factory=list)
+    associated_node_ids: list[str] = field(default_factory=list)
+    last_seen: float = 0.0
 
 
 @dataclass
@@ -78,6 +92,18 @@ class Observation:
     image_path: str = ""
     objects: list[ObjectObservation] = field(default_factory=list)
     relations: list[SpatialRelation] = field(default_factory=list)
+    timestamp: float = 0.0
+    camera_frame: str = ""
+    camera_position: tuple[float, float, float] | None = None
+    camera_orientation: tuple[float, float, float, float] | None = None
+    depth_camera_frame: str = ""
+    depth_camera_position: tuple[float, float, float] | None = None
+    depth_camera_orientation: tuple[float, float, float, float] | None = None
+    requested_yaw: float = 0.0
+    measured_yaw: float = 0.0
+    angular_error: float = 0.0
+    image_valid: bool = True
+    depth_valid: bool = False
 
 
 @dataclass
@@ -94,6 +120,14 @@ class SemanticNode:
     orientation: tuple[float, float, float, float] = (0.0, 0.0, 0.0, 1.0)
     observations: list[Observation] = field(default_factory=list)
     room_id: str | None = None
+    scene_id: str = "default"
+    navigation_position: tuple[float, float, float] | None = None
+    navigation_orientation: tuple[float, float, float, float] | None = None
+    neighbors: list[str] = field(default_factory=list)
+    creation_timestamp: float = field(
+        default_factory=lambda: datetime.now(timezone.utc).timestamp()
+    )
+    configuration_hash: str = ""
 
     def embeddings(self) -> list[np.ndarray]:
         """Per-view embeddings, skipping observations without one."""

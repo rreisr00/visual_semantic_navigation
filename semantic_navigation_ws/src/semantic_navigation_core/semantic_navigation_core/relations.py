@@ -110,6 +110,8 @@ def infer_relations(
             relations.append(SpatialRelation(
                 subj.label, pred, obj.label,
                 confidence=round(min(1.0, strength) * pair_conf, 4),
+                subject_id=subj.object_id or subj.label,
+                object_id=obj.object_id or obj.label,
             ))
 
             # Symmetric predicates: emit once per unordered pair (i < j).
@@ -121,12 +123,16 @@ def infer_relations(
                     relations.append(SpatialRelation(
                         subj.label, REL_NEAR, obj.label,
                         confidence=round(near_conf * pair_conf, 4),
+                        subject_id=subj.object_id or subj.label,
+                        object_id=obj.object_id or obj.label,
                     ))
                 iou = _iou(subj.box, obj.box)
                 if iou >= overlap_iou:
                     relations.append(SpatialRelation(
                         subj.label, REL_OVERLAPS, obj.label,
                         confidence=round(min(1.0, iou / 0.5) * pair_conf, 4),
+                        subject_id=subj.object_id or subj.label,
+                        object_id=obj.object_id or obj.label,
                     ))
 
             # subject on top of obj: subject bottom close to obj top, with
@@ -141,6 +147,8 @@ def infer_relations(
                 relations.append(SpatialRelation(
                     subj.label, REL_POSSIBLY_ON_TOP_OF, obj.label,
                     confidence=round(max(0.0, on_conf) * pair_conf, 4),
+                    subject_id=subj.object_id or subj.label,
+                    object_id=obj.object_id or obj.label,
                 ))
 
     return relations
