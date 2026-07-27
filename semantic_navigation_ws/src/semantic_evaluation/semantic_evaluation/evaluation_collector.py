@@ -39,6 +39,11 @@ from rclpy.action import ActionClient
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+
+from geometry_msgs.msg import PoseWithCovarianceStamped
+from ros_gz_interfaces.msg import Entity
+from ros_gz_interfaces.srv import SetEntityPose
 
 from semantic_interfaces.action import NavigateToSemanticGoal
 from semantic_interfaces.srv import GetGraphSnapshot
@@ -71,6 +76,14 @@ class _TestCase:
     expected_node_id: str
     query_text: str = ""
     image_path: str = ""
+    query_id: str = ""
+    query_type: str = "object"
+    language: str = "es"
+    start_pose_id: str = ""
+    exact_valid_nodes: tuple[str, ...] = ()
+    nearby_valid_nodes: tuple[str, ...] = ()
+    is_negative: bool = False
+    timeout_s: float = 0.0
 
     @property
     def use_image(self) -> bool:
@@ -111,6 +124,11 @@ class EvaluationCollectorNode(Node):
         self.declare_parameter("goal_response_timeout_s", 15.0)
         self.declare_parameter("result_timeout_s", 330.0)
         self.declare_parameter("hardware_refresh_period_s", 0.5)
+        self.declare_parameter("start_poses_path", "")
+        self.declare_parameter("reset_pose_service", "/world/default/set_pose")
+        self.declare_parameter("robot_entity_name", "waffle")
+        self.declare_parameter("initial_pose_topic", "/initialpose")
+        self.declare_parameter("localization_settle_s", 5.0)
 
         self._action_name = self.get_parameter("action_name").value
         self._snapshot_name = self.get_parameter("snapshot_service_name").value
@@ -145,11 +163,17 @@ class EvaluationCollectorNode(Node):
             self.get_parameter("goal_response_timeout_s").value
         )
         self._result_timeout = float(self.get_parameter("result_timeout_s").value)
+        self._start_poses_path = os.path.expanduser(
+            str(self.get_parameter("start_poses_path").value)
+        )
+        self._start_poses = self._load_start_poses(self._start_poses_path)
+        self._campaign_status = "complete"
 
         # ── Separate callback groups for action vs snapshot service ───────── #
         self._action_cbg = MutuallyExclusiveCallbackGroup()
         self._snapshot_cbg = MutuallyExclusiveCallbackGroup()
         self._timer_cbg = MutuallyExclusiveCallbackGroup()
+        self._reset_cbg = MutuallyExclusiveCallbackGroup()
 
         self._action_client = ActionClient(
             self, NavigateToSemanticGoal, self._action_name,
@@ -157,6 +181,21 @@ class EvaluationCollectorNode(Node):
         )
         self._snapshot_client = self.create_client(
             GetGraphSnapshot, self._snapshot_name, callback_group=self._snapshot_cbg,
+        )
+        self._reset_pose_client = self.create_client(
+            SetEntityPose,
+            str(self.get_parameter("reset_pose_service").value),
+            callback_group=self._reset_cbg,
+        )
+        initial_pose_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self._initial_pose_pub = self.create_publisher(
+            PoseWithCovarianceStamped,
+            str(self.get_parameter("initial_pose_topic").value),
+            initial_pose_qos,
         )
 
         # ── Hardware sampling: timer keeps the CPU delta warm ─────────────── #
@@ -198,6 +237,14 @@ class EvaluationCollectorNode(Node):
                 f"[{idx}/{len(cases)}] case '{case.case_id}' "
                 f"(expected={case.expected_node_id})."
             )
+            if not self._restore_start_pose(case.start_pose_id or self._start_pose_id):
+                failed = self._failed_result(
+                    case, GraphContext(), "could not restore a known start pose"
+                )
+                failed.failure_type = "localization_failure"
+                results.append(failed)
+                self._campaign_status = "aborted_unknown_state"
+                break
             results.append(self._run_case(case))
 
         return self._export(results)
@@ -208,7 +255,9 @@ class EvaluationCollectorNode(Node):
         if goal is None:
             return self._failed_result(case, graph, "could not build goal")
 
-        outcome = self._send_goal_and_wait(goal)
+        outcome = self._send_goal_and_wait(
+            goal, case.timeout_s if case.timeout_s > 0.0 else self._result_timeout
+        )
         hardware = self._hw.sample()
 
         if outcome is None:
@@ -229,7 +278,61 @@ class EvaluationCollectorNode(Node):
             hardware=hardware,
             graph=graph,
             score=float(outcome.score),
+            query_id=case.query_id or case.case_id,
+            query_type=case.query_type,
+            language=case.language,
+            exact_valid_nodes=list(case.exact_valid_nodes),
+            nearby_valid_nodes=list(case.nearby_valid_nodes),
+            rank_first_valid=_rank_first_valid(
+                [item.node_id for item in outcome.top_k_candidates],
+                case.exact_valid_nodes,
+            ),
+            is_negative=case.is_negative,
+            accepted=bool(outcome.accepted),
+            semantic_success=(
+                not outcome.accepted
+                if case.is_negative
+                else outcome.matched_node_id in set(case.exact_valid_nodes)
+            ),
+            nearby_semantic_success=(
+                not outcome.accepted
+                if case.is_negative
+                else outcome.matched_node_id in (
+                    set(case.exact_valid_nodes) | set(case.nearby_valid_nodes)
+                )
+            ),
+            navigation_success=(
+                None if self._decision_only else bool(outcome.navigation_success)
+            ),
+            retrieval_latency_ms=float(outcome.retrieval_latency_ms),
+            navigation_time_s=float(outcome.navigation_s),
+            failure_type=str(outcome.failure_type),
+            nav2_error_message=str(outcome.nav2_error_message),
+            top_k_candidates=[item.node_id for item in outcome.top_k_candidates],
+            campaign_id=self._campaign_id,
+            run_id=self._run_id,
+            scene_id=self._scene_id,
+            method=self._method,
+            start_pose_id=case.start_pose_id or self._start_pose_id,
+            frozen_config_hash=self._frozen_config_hash,
+            nav2_error_code=int(outcome.nav2_error_code),
+            number_of_recoveries=int(outcome.number_of_recoveries),
+            path_length_m=float(outcome.path_length_m),
+            optimal_path_length_m=float(outcome.optimal_path_length_m),
+            spl=float(outcome.spl),
+            final_distance_m=float(outcome.final_distance_m),
+            adjustment_distance_m=float(outcome.adjustment_distance_m),
+            goal_validation_status=str(outcome.goal_validation_status),
         )
+        result.end_to_end_success = (
+            None if result.navigation_success is None
+            else result.semantic_success and result.navigation_success
+        )
+        if not result.failure_type and not result.semantic_success:
+            result.failure_type = (
+                "semantic_rejection_error"
+                if case.is_negative else "semantic_mismatch"
+            )
         return annotate_accuracy(
             result, self._separator, self._strategy, self._room_map
         )
@@ -239,6 +342,10 @@ class EvaluationCollectorNode(Node):
     def _build_goal(self, case: _TestCase):
         goal = NavigateToSemanticGoal.Goal()
         goal.decision_only = self._decision_only
+        goal.navigate = not self._decision_only
+        goal.scene_id = self._scene_id
+        goal.language = case.language
+        goal.top_k = 5
         if case.use_image:
             image_msg = self._load_image(case.image_path)
             if image_msg is None:
@@ -250,7 +357,7 @@ class EvaluationCollectorNode(Node):
             goal.query_text = case.query_text
         return goal
 
-    def _send_goal_and_wait(self, goal):
+    def _send_goal_and_wait(self, goal, result_timeout: float):
         """Send a goal and block the *main* thread on the result future."""
         send_future = self._action_client.send_goal_async(goal)
         goal_handle = self._await(send_future, self._goal_response_timeout)
@@ -262,11 +369,56 @@ class EvaluationCollectorNode(Node):
             return None
 
         result_future = goal_handle.get_result_async()
-        result_msg = self._await(result_future, self._result_timeout)
+        result_msg = self._await(result_future, result_timeout)
         if result_msg is None:
             self.get_logger().error("Result timed out.")
+            self._await(goal_handle.cancel_goal_async(), 5.0)
             return None
         return result_msg.result
+
+    def _restore_start_pose(self, pose_id: str) -> bool:
+        """Teleport the simulated model and reset AMCL before a campaign case."""
+        if not self._start_poses_path:
+            return True
+        pose = self._start_poses.get(pose_id)
+        if pose is None:
+            self.get_logger().error(f"Unknown start pose '{pose_id}'.")
+            return False
+        if not self._reset_pose_client.wait_for_service(
+            timeout_sec=self._service_timeout
+        ):
+            self.get_logger().error("Gazebo set-pose service unavailable.")
+            return False
+
+        request = SetEntityPose.Request()
+        request.entity.name = str(self.get_parameter("robot_entity_name").value)
+        request.entity.type = Entity.MODEL
+        request.pose.position.x = pose[0][0]
+        request.pose.position.y = pose[0][1]
+        request.pose.position.z = pose[0][2]
+        request.pose.orientation.x = pose[1][0]
+        request.pose.orientation.y = pose[1][1]
+        request.pose.orientation.z = pose[1][2]
+        request.pose.orientation.w = pose[1][3]
+        response = self._await(
+            self._reset_pose_client.call_async(request), self._service_timeout
+        )
+        if response is None or not response.success:
+            self.get_logger().error("Gazebo rejected the start-pose reset.")
+            return False
+
+        initial = PoseWithCovarianceStamped()
+        initial.header.frame_id = "map"
+        initial.header.stamp = self.get_clock().now().to_msg()
+        initial.pose.pose = request.pose
+        initial.pose.covariance[0] = 0.25
+        initial.pose.covariance[7] = 0.25
+        initial.pose.covariance[35] = 0.0685
+        for _ in range(3):
+            self._initial_pose_pub.publish(initial)
+            time.sleep(0.1)
+        time.sleep(float(self.get_parameter("localization_settle_s").value))
+        return True
 
     def _read_graph_context(self) -> GraphContext:
         if not self._snapshot_client.service_is_ready():
@@ -310,15 +462,51 @@ class EvaluationCollectorNode(Node):
         cases: list[_TestCase] = []
         for i, entry in enumerate(raw_cases):
             case_id = str(entry.get("case_id", f"case_{i:03d}"))
+            exact_valid_nodes = tuple(str(value) for value in entry.get(
+                "exact_valid_nodes",
+                [entry.get("expected_node_id", "")]
+                if entry.get("expected_node_id") else [],
+            ))
+            expected_node_id = str(entry.get("expected_node_id", ""))
+            if not expected_node_id and exact_valid_nodes:
+                expected_node_id = exact_valid_nodes[0]
             cases.append(
                 _TestCase(
                     case_id=case_id,
-                    expected_node_id=str(entry.get("expected_node_id", "")),
+                    expected_node_id=expected_node_id,
                     query_text=str(entry.get("query_text", "")),
                     image_path=os.path.expanduser(str(entry.get("image_path", ""))),
+                    query_id=str(entry.get("query_id", case_id)),
+                    query_type=str(entry.get("query_type", "object")),
+                    language=str(entry.get("language", "es")),
+                    start_pose_id=str(entry.get("start_pose_id", "")),
+                    exact_valid_nodes=exact_valid_nodes,
+                    nearby_valid_nodes=tuple(str(value) for value in entry.get(
+                        "nearby_valid_nodes", []
+                    )),
+                    is_negative=bool(entry.get("is_negative", False)),
+                    timeout_s=float(entry.get("timeout_s", 0.0)),
                 )
             )
         return cases
+
+    @staticmethod
+    def _load_start_poses(
+        path: str,
+    ) -> dict[str, tuple[tuple[float, float, float], tuple[float, float, float, float]]]:
+        if not path or not os.path.isfile(path):
+            return {}
+        with open(path, encoding="utf-8") as handle:
+            data = yaml.safe_load(handle) or {}
+        output = {}
+        for entry in data.get("poses", []):
+            position = tuple(float(value) for value in entry.get("position", []))
+            orientation = tuple(
+                float(value) for value in entry.get("orientation", [])
+            )
+            if len(position) == 3 and len(orientation) == 4:
+                output[str(entry.get("pose_id", ""))] = (position, orientation)
+        return output
 
     def _load_image(self, path: str):
         if not _HAS_CV:
@@ -347,6 +535,9 @@ class EvaluationCollectorNode(Node):
             self.get_logger().error(f"Cannot create output dir: {exc}")
             return None
         path = os.path.join(run_dir, "evaluation.csv")
+        for result in results:
+            result.campaign_id = campaign_id
+            result.run_id = run_id
         # room_map must reach write_csv: aggregate() re-annotates defensively
         # and would otherwise clobber graph-based room_correct values.
         write_csv(path, results, self._separator, self._strategy, self._room_map)
@@ -363,8 +554,10 @@ class EvaluationCollectorNode(Node):
             "query_suite_id": query_suite_id,
             "frozen_config_hash": self._frozen_config_hash,
             "git_commit": self._git_commit(),
+            "repository_dirty_state": self._git_dirty_state(),
+            "ros_distro": os.environ.get("ROS_DISTRO", "unknown"),
             "timestamp": timestamp.isoformat(),
-            "status": "complete",
+            "status": self._campaign_status,
         }
         if self._success_semantics:
             metadata["success_semantics"] = self._success_semantics
@@ -393,6 +586,22 @@ class EvaluationCollectorNode(Node):
         except (OSError, subprocess.TimeoutExpired):
             return "unknown"
 
+    @staticmethod
+    def _git_dirty_state() -> str:
+        try:
+            completed = subprocess.run(
+                ["git", "status", "--porcelain"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            if completed.returncode != 0:
+                return "unknown"
+            return "dirty" if completed.stdout.strip() else "clean"
+        except (OSError, subprocess.TimeoutExpired):
+            return "unknown"
+
     def _failed_result(
         self, case: _TestCase, graph: GraphContext, reason: str, hardware=None
     ) -> TestCaseResult:
@@ -406,10 +615,33 @@ class EvaluationCollectorNode(Node):
             success=False,
             hardware=hardware if hardware is not None else self._hw.sample(),
             graph=graph,
+            query_id=case.query_id or case.case_id,
+            query_type=case.query_type,
+            language=case.language,
+            exact_valid_nodes=list(case.exact_valid_nodes),
+            nearby_valid_nodes=list(case.nearby_valid_nodes),
+            is_negative=case.is_negative,
+            failure_type=("timeout" if "timeout" in reason else "data_logging_failure"),
+            campaign_id=self._campaign_id,
+            run_id=self._run_id,
+            scene_id=self._scene_id,
+            method=self._method,
+            start_pose_id=case.start_pose_id or self._start_pose_id,
+            frozen_config_hash=self._frozen_config_hash,
         )
         return annotate_accuracy(
             result, self._separator, self._strategy, self._room_map
         )
+
+
+def _rank_first_valid(
+    candidate_ids: list[str], valid_node_ids: tuple[str, ...]
+) -> int | None:
+    valid = set(valid_node_ids)
+    for rank, node_id in enumerate(candidate_ids, start=1):
+        if node_id in valid:
+            return rank
+    return None
 
 
 def main(args=None) -> None:

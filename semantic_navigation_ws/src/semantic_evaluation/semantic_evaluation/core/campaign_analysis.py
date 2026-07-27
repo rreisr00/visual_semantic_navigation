@@ -89,26 +89,29 @@ def _rank(predicted: str, valid: list[str], existing: Any) -> int | None:
 
 def classify_failure(row: Mapping[str, Any], run_status: str = "complete") -> str:
     if run_status not in {"complete", "completed"}:
-        return "incomplete_campaign"
+        return "combined_failure"
     if bool(row.get("data_error", False)):
-        return "data_error"
+        return "data_logging_failure"
     if bool(row.get("timeout", False)):
         return "timeout"
+    explicit = str(row.get("failure_type") or "")
+    if explicit:
+        return explicit
     semantic = row.get("semantic_success")
     navigation = row.get("navigation_success")
     stage = str(row.get("navigation_failure_stage") or "").lower()
     if semantic is False and navigation is True:
-        return "incorrect_node_navigation_completed"
+        return "semantic_mismatch"
     if semantic is False and navigation is False:
         return "combined_failure"
     if semantic is False:
-        return "semantic_failure"
+        return "semantic_mismatch"
     if semantic is True and navigation is False and stage == "planning":
-        return "planning_failure_after_correct_node"
+        return "no_path"
     if semantic is True and navigation is False and stage == "control":
-        return "control_failure_after_correct_node"
+        return "controller_failure"
     if semantic is True and navigation is False:
-        return "navigation_failure_after_correct_node"
+        return "planner_failure"
     return "none"
 
 

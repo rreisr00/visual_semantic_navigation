@@ -43,6 +43,8 @@ def generate_launch_description() -> LaunchDescription:
     query_suite_id = LaunchConfiguration("query_suite_id")
     frozen_config_hash = LaunchConfiguration("frozen_config_hash")
     success_semantics = LaunchConfiguration("success_semantics")
+    start_poses_path = LaunchConfiguration("start_poses_path")
+    reset_pose_service = LaunchConfiguration("reset_pose_service")
 
     args = [
         DeclareLaunchArgument("params_file", default_value=default_params),
@@ -60,6 +62,10 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument("query_suite_id", default_value=""),
         DeclareLaunchArgument("frozen_config_hash", default_value=""),
         DeclareLaunchArgument("success_semantics", default_value=""),
+        DeclareLaunchArgument("start_poses_path", default_value=""),
+        DeclareLaunchArgument(
+            "reset_pose_service", default_value="/world/default/set_pose"
+        ),
     ]
 
     visualizer = Node(
@@ -97,6 +103,8 @@ def generate_launch_description() -> LaunchDescription:
                 "query_suite_id": query_suite_id,
                 "frozen_config_hash": frozen_config_hash,
                 "success_semantics": success_semantics,
+                "start_poses_path": start_poses_path,
+                "reset_pose_service": reset_pose_service,
             },
         ],
         condition=IfCondition(run_collector),

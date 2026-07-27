@@ -74,7 +74,7 @@ def test_legacy_success_without_semantics_is_not_assumed():
 
 def test_failure_taxonomy_and_case_run_campaign_scene_aggregation():
     assert classify_failure({"semantic_success": False, "navigation_success": True}) == \
-        "incorrect_node_navigation_completed"
+        "semantic_mismatch"
     frames = []
     for index, ok in enumerate((True, False), start=1):
         frame = pd.DataFrame([{"case_id": f"q{index}", "predicted_node_id": "a",
