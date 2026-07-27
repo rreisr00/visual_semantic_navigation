@@ -1,0 +1,43 @@
+suite_id: aws_small_house_semantic_queries_v1
+scene_id: aws_small_house
+cases:
+  - case_id: kitchen_coffee
+    query_id: kitchen_coffee_en
+    query_text: "the coffee machine on the kitchen counter"
+    query_type: object_relation
+    language: en
+    start_pose_id: origin
+    exact_valid_nodes: [cocina_01]
+    nearby_valid_nodes: [cocina_02]
+    is_negative: false
+    timeout_s: 300.0
+  - case_id: living_sofa
+    query_id: living_sofa_es
+    query_text: "el sofá del salón"
+    query_type: object_room
+    language: es
+    start_pose_id: origin
+    exact_valid_nodes: [sala_estar_01]
+    nearby_valid_nodes: [sala_estar_02]
+    is_negative: false
+    timeout_s: 300.0
+  - case_id: bedroom_bed
+    query_id: bedroom_bed_en
+    query_text: "the bed in the bedroom"
+    query_type: object_room
+    language: en
+    start_pose_id: origin
+    exact_valid_nodes: [dormitorio_01]
+    nearby_valid_nodes: []
+    is_negative: false
+    timeout_s: 300.0
+  - case_id: negative_pool
+    query_id: negative_swimming_pool_es
+    query_text: "la piscina interior"
+    query_type: negative
+    language: es
+    start_pose_id: origin
+    exact_valid_nodes: []
+    nearby_valid_nodes: []
+    is_negative: true
+    timeout_s: 60.0

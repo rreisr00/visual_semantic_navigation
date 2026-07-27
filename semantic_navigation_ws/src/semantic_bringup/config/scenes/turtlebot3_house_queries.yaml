@@ -1,0 +1,33 @@
+suite_id: turtlebot3_house_semantic_queries_v1
+scene_id: turtlebot3_house
+cases:
+  - case_id: dining_table
+    query_id: dining_table_en
+    query_text: "the dining table and chairs"
+    query_type: multi_object
+    language: en
+    start_pose_id: entrance
+    exact_valid_nodes: [dining_area_01]
+    nearby_valid_nodes: [dining_area_02]
+    is_negative: false
+    timeout_s: 360.0
+  - case_id: mailbox
+    query_id: mailbox_es
+    query_text: "el lugar junto al buzón"
+    query_type: object
+    language: es
+    start_pose_id: entrance
+    exact_valid_nodes: [mailbox_01]
+    nearby_valid_nodes: []
+    is_negative: false
+    timeout_s: 360.0
+  - case_id: negative_elevator
+    query_id: negative_elevator_en
+    query_text: "the elevator lobby"
+    query_type: negative
+    language: en
+    start_pose_id: entrance
+    exact_valid_nodes: []
+    nearby_valid_nodes: []
+    is_negative: true
+    timeout_s: 60.0

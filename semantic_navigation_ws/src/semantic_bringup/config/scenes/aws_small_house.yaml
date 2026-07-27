@@ -1,0 +1,31 @@
+scene_id: aws_small_house
+world_file: worlds/semantic_test.world
+map_file: aws_robomaker_small_house_world/maps/turtlebot3_waffle_pi/map.yaml
+graph_database: ~/.ros/semantic_maps/aws_small_house/graph.db
+queries_file: config/scenes/aws_small_house_queries.yaml
+start_poses_file: config/scenes/aws_small_house_start_poses.yaml
+ground_truth_file: config/scenes/aws_small_house_ground_truth.yaml
+robot_model: turtlebot3_waffle_semantic
+camera_topics:
+  rgb: /camera/image_raw
+  camera_info: /camera/camera_info
+depth_topics:
+  image: /camera/depth/image_raw
+  camera_info: /camera/depth/camera_info
+scan_topic: /scan
+frames:
+  map: map
+  odom: odom
+  base: base_link
+  camera: camera_rgb_frame
+  camera_optical: camera_rgb_optical_frame
+node_creation:
+  minimum_translation_m: 1.5
+  minimum_rotation_deg: 45.0
+  minimum_time_s: 2.0
+  duplicate_distance_m: 0.5
+  maximum_edge_distance_m: 4.0
+campaign:
+  timeout_s: 300.0
+  localization_settle_s: 5.0
+  frozen_retrieval_config: semantic_navigation_ros/config/frozen_retrieval_config.yaml

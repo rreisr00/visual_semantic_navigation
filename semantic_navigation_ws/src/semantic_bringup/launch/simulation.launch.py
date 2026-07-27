@@ -31,6 +31,7 @@ Launch arguments
 """
 
 import glob
+import math
 import os
 
 from ament_index_python.packages import get_package_share_directory
@@ -43,13 +44,20 @@ from launch.actions import (
     RegisterEventHandler,
     SetEnvironmentVariable,
 )
+from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import (
+    IfElseSubstitution,
+    LaunchConfiguration,
+    PathJoinSubstitution,
+    PythonExpression,
+)
 from launch_ros.actions import Node
 from launch_ros.descriptions import ParameterFile
 from launch_ros.substitutions import FindPackageShare
 from nav2_common.launch import RewrittenYaml
+from semantic_navigation_core.configuration import load_frozen_config
 
 
 def find_venv_site_packages(start_dir: str) -> str:
@@ -121,15 +129,57 @@ def generate_launch_description() -> LaunchDescription:
         "camera_mast_z", default_value="0.45",
         description="Camera height above base_footprint [m] (stock waffle: 0.107).",
     )
+    spawn_x_arg = DeclareLaunchArgument("spawn_x", default_value="0.0")
+    spawn_y_arg = DeclareLaunchArgument("spawn_y", default_value="0.0")
+    spawn_yaw_arg = DeclareLaunchArgument("spawn_yaw", default_value="0.0")
     world_name_arg = DeclareLaunchArgument(
         "world_name", default_value="default",
         description="The <world name=...> declared inside the .world file — "
                     "used for gz service paths like /world/<name>/set_pose.",
     )
+    scene_id_arg = DeclareLaunchArgument(
+        "scene_id", default_value="aws_small_house",
+        description="Stable scene identifier used to isolate graph persistence.",
+    )
+    graph_database_arg = DeclareLaunchArgument(
+        "graph_database", default_value="~/.ros/semantic_maps/{scene_id}/graph.db",
+        description="SQLite graph path; {scene_id} is expanded by the bridge.",
+    )
+    start_semantic_arg = DeclareLaunchArgument(
+        "start_semantic", default_value="true",
+        description="Start ML, graph, capture and semantic navigation nodes.",
+    )
+    start_rviz_arg = DeclareLaunchArgument(
+        "start_rviz", default_value="true",
+        description="Start RViz2.",
+    )
+    start_auto_mapping_arg = DeclareLaunchArgument(
+        "start_auto_mapping", default_value="false",
+        description="Create semantic nodes automatically from odometry motion.",
+    )
+    headless_arg = DeclareLaunchArgument(
+        "headless", default_value="false",
+        description="Run only the Gazebo server (no graphical client).",
+    )
+    localization_mode_arg = DeclareLaunchArgument(
+        "localization_mode", default_value="localization",
+        description="'localization' uses map_server+AMCL; 'slam' uses slam_toolbox.",
+    )
 
     use_sim_time = LaunchConfiguration("use_sim_time")
     map_yaml     = LaunchConfiguration("map")
     world_file   = LaunchConfiguration("world")
+    scene_id     = LaunchConfiguration("scene_id")
+    graph_database = LaunchConfiguration("graph_database")
+    start_semantic = LaunchConfiguration("start_semantic")
+    headless = LaunchConfiguration("headless")
+    localization_mode = LaunchConfiguration("localization_mode")
+    localization_condition = IfCondition(PythonExpression([
+        "'", localization_mode, "' == 'localization'"
+    ]))
+    slam_condition = IfCondition(PythonExpression([
+        "'", localization_mode, "' == 'slam'"
+    ]))
 
     # ------------------------------------------------------------------ #
     # Nav2 parameter file
@@ -177,20 +227,48 @@ def generate_launch_description() -> LaunchDescription:
                 [FindPackageShare("ros_gz_sim"), "launch", "gz_sim.launch.py"]
             )
         ),
-        launch_arguments={"gz_args": ["-r ", world_file]}.items(),
+        launch_arguments={
+            "gz_args": [IfElseSubstitution(headless, "-s -r ", "-r "), world_file]
+        }.items(),
     )
 
     # ------------------------------------------------------------------ #
     # 2. TurtleBot3
     # ------------------------------------------------------------------ #
-    robot_state_publisher = IncludeLaunchDescription(
-        PythonLaunchDescriptionSource(
-            PathJoinSubstitution(
-                [FindPackageShare("turtlebot3_gazebo"), "launch",
-                 "robot_state_publisher.launch.py"]
-            )
-        ),
-        launch_arguments={"use_sim_time": use_sim_time}.items(),
+    def _robot_state_publisher(context):
+        camera_z = float(LaunchConfiguration("camera_mast_z").perform(context))
+        urdf_path = os.path.join(_tb3_share, "urdf", "turtlebot3_waffle.urdf")
+        with open(urdf_path, encoding="utf-8") as stream:
+            robot_description = stream.read()
+        stock = '<origin xyz="0.064 -0.065 0.094" rpy="0 0 0"/>'
+        raised = f'<origin xyz="0.064 -0.065 {camera_z - 0.013:.4f}" rpy="0 0 0"/>'
+        if stock not in robot_description:
+            raise RuntimeError("TurtleBot3 camera_joint origin not found in URDF")
+        robot_description = robot_description.replace(stock, raised, 1)
+        return [Node(
+            package="robot_state_publisher",
+            executable="robot_state_publisher",
+            name="robot_state_publisher",
+            output="screen",
+            parameters=[{
+                "use_sim_time": use_sim_time,
+                "robot_description": robot_description,
+            }],
+        )]
+
+    robot_state_publisher = OpaqueFunction(function=_robot_state_publisher)
+
+    depth_optical_tf = Node(
+        package="tf2_ros",
+        executable="static_transform_publisher",
+        name="depth_optical_tf",
+        arguments=[
+            "--x", "0", "--y", "0", "--z", "0",
+            "--qx", "0", "--qy", "0", "--qz", "0", "--qw", "1",
+            "--frame-id", "camera_rgb_optical_frame",
+            "--child-frame-id", "camera_depth_optical_frame",
+        ],
+        parameters=[{"use_sim_time": use_sim_time}],
     )
 
     # The stock spawn_turtlebot3.launch.py hardcodes the system waffle SDF, so
@@ -198,11 +276,12 @@ def generate_launch_description() -> LaunchDescription:
     # and spawn our vendored model with the camera raised to `camera_mast_z`.
     # The vendored SDF differs from the stock one only in camera height
     # (placeholder-substituted below), 640x480 resolution and a mast visual.
-    # TF caveat: robot_state_publisher keeps the stock URDF camera height
-    # (~0.12 m); fine while nothing consumes camera-frame TF.
     def _spawn_robot(context):
         world_name = LaunchConfiguration("world_name").perform(context)
         camera_z = float(LaunchConfiguration("camera_mast_z").perform(context))
+        spawn_x = float(LaunchConfiguration("spawn_x").perform(context))
+        spawn_y = float(LaunchConfiguration("spawn_y").perform(context))
+        spawn_yaw = float(LaunchConfiguration("spawn_yaw").perform(context))
         mast_bottom = 0.107          # stock camera height ≈ robot top plate
         mast_length = max(camera_z - mast_bottom, 0.001)
         sdf_path = os.path.join(
@@ -212,6 +291,7 @@ def generate_launch_description() -> LaunchDescription:
             sdf = f.read()
         sdf = (
             sdf.replace("@CAMERA_Z@", f"{camera_z:.4f}")
+               .replace("@CAMERA_LINK_Z@", f"{camera_z - 0.013:.4f}")
                .replace("@MAST_LENGTH@", f"{mast_length:.4f}")
                .replace("@MAST_CENTER_Z@", f"{-mast_length / 2.0:.4f}")
         )
@@ -221,7 +301,8 @@ def generate_launch_description() -> LaunchDescription:
             arguments=[
                 "-name", "waffle",          # reset_robot_pose targets this name
                 "-string", sdf,
-                "-x", "0.0", "-y", "0.0", "-z", "0.01",
+                "-x", str(spawn_x), "-y", str(spawn_y), "-z", "0.01",
+                "-Y", str(spawn_yaw),
             ],
             output="screen",
         )
@@ -238,8 +319,9 @@ def generate_launch_description() -> LaunchDescription:
                 "--reptype", "gz.msgs.Boolean",
                 "--timeout", "2000",
                 "--req",
-                "name: 'waffle' position: {x: 0.0 y: 0.0 z: 0.01}"
-                " orientation: {w: 1.0}",
+                f"name: 'waffle' position: {{x: {spawn_x} y: {spawn_y} z: 0.01}}"
+                f" orientation: {{z: {math.sin(spawn_yaw / 2.0)} "
+                f"w: {math.cos(spawn_yaw / 2.0)}}}",
             ],
             output="screen",
         )
@@ -271,9 +353,33 @@ def generate_launch_description() -> LaunchDescription:
     camera_image_bridge = Node(
         package="ros_gz_image",
         executable="image_bridge",
-        arguments=["/camera/image_raw"],
+        arguments=["/camera/image_raw", "/camera/depth/image_raw"],
         output="screen",
     )
+
+    depth_camera_info_bridge = Node(
+        package="ros_gz_bridge",
+        executable="parameter_bridge",
+        arguments=[
+            "/camera/depth/camera_info"
+            "@sensor_msgs/msg/CameraInfo[gz.msgs.CameraInfo"
+        ],
+        output="screen",
+    )
+
+    def _set_pose_service_bridge(context):
+        world_name = LaunchConfiguration("world_name").perform(context)
+        return [Node(
+            package="ros_gz_bridge",
+            executable="parameter_bridge",
+            arguments=[
+                f"/world/{world_name}/set_pose"
+                "@ros_gz_interfaces/srv/SetEntityPose"
+            ],
+            output="screen",
+        )]
+
+    set_pose_service_bridge = OpaqueFunction(function=_set_pose_service_bridge)
 
     # ------------------------------------------------------------------ #
     # 3. Localization – map_server + amcl
@@ -285,6 +391,7 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         parameters=[configured_params, {"yaml_filename": map_yaml}],
         remappings=remappings,
+        condition=localization_condition,
     )
 
     amcl = Node(
@@ -294,6 +401,7 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         parameters=[configured_params],
         remappings=remappings,
+        condition=localization_condition,
     )
 
     lifecycle_manager_localization = Node(
@@ -306,6 +414,17 @@ def generate_launch_description() -> LaunchDescription:
             "autostart":    True,
             "node_names":   ["map_server", "amcl"],
         }],
+        condition=localization_condition,
+    )
+
+    slam = IncludeLaunchDescription(
+        PythonLaunchDescriptionSource(
+            PathJoinSubstitution(
+                [FindPackageShare("slam_toolbox"), "launch", "online_async_launch.py"]
+            )
+        ),
+        launch_arguments={"use_sim_time": use_sim_time}.items(),
+        condition=slam_condition,
     )
 
     # ------------------------------------------------------------------ #
@@ -434,6 +553,7 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         arguments=["-d", _rviz_config],
         parameters=[{"use_sim_time": use_sim_time}],    
+        condition=IfCondition(LaunchConfiguration("start_rviz")),
     )
 
     # ------------------------------------------------------------------ #
@@ -445,8 +565,22 @@ def generate_launch_description() -> LaunchDescription:
     }
 
     retrieval_config = os.path.join(_snr_share, "config", "retrieval_config.yaml")
+    mapping_config = os.path.join(_snr_share, "config", "mapping_config.yaml")
+    frozen_config_path = os.path.join(
+        _snr_share, "config", "frozen_retrieval_config.yaml"
+    )
+    frozen_config, frozen_hash = load_frozen_config(frozen_config_path)
     vision_config    = os.path.join(_svr_share, "config", "vision_config.yaml")
     kg_config        = os.path.join(_kgr_share, "config", "kg_config.yaml")
+    repo_root = _bringup_share
+    for _ in range(10):
+        candidate = os.path.join(repo_root, "experiments", "yolov8n.pt")
+        if os.path.isfile(candidate):
+            break
+        repo_root = os.path.dirname(repo_root)
+    yolo_checkpoint = candidate
+    aggregation = frozen_config["multiview_aggregation"]
+    weights = frozen_config["retrieval_weights"]
 
     # visual_encoder and knowledge_graph_bridge are lifecycle nodes driven to
     # 'active' by our own semantic_navigation_ros lifecycle_manager, which also
@@ -455,9 +589,17 @@ def generate_launch_description() -> LaunchDescription:
         package="semantic_vision_ros",
         executable="visual_encoder",
         name="visual_encoder",
-        parameters=[vision_config, {"use_sim_time": use_sim_time}],
+        parameters=[vision_config, {
+            "use_sim_time": use_sim_time,
+            "siglip_model_id": frozen_config["siglip_checkpoint"],
+            "yolo_model_path": yolo_checkpoint,
+            "local_files_only": bool(
+                frozen_config["preprocessing"].get("local_files_only", True)
+            ),
+        }],
         additional_env=_extra_env,
         output="screen",
+        condition=IfCondition(start_semantic),
     )
 
     # knowledge_graph_bridge owns both the /store_waypoint + /get_waypoints
@@ -466,8 +608,14 @@ def generate_launch_description() -> LaunchDescription:
         package="knowledge_graph_ros",
         executable="knowledge_graph_bridge",
         name="knowledge_graph_bridge",
-        parameters=[kg_config, {"use_sim_time": use_sim_time}],
+        parameters=[kg_config, {
+            "use_sim_time": use_sim_time,
+            "scene_id": scene_id,
+            "db_file_path": graph_database,
+            "configuration_hash": frozen_hash,
+        }],
         output="screen",
+        condition=IfCondition(start_semantic),
     )
 
     semantic_lifecycle_manager = Node(
@@ -479,23 +627,61 @@ def generate_launch_description() -> LaunchDescription:
             "use_sim_time":  use_sim_time,
             "managed_nodes": ["visual_encoder", "knowledge_graph_bridge"],
         }],
+        condition=IfCondition(start_semantic),
     )
 
     kg_manager_node = Node(
         package="semantic_navigation_ros",
         executable="kg_manager",
         name="kg_manager",
-        parameters=[{"use_sim_time": use_sim_time}],
+        parameters=[{
+            "use_sim_time": use_sim_time,
+            "scene_id": scene_id,
+            "configuration_hash": frozen_hash,
+        }],
         output="screen",
+        condition=IfCondition(start_semantic),
     )
 
     orchestrator_node = Node(
         package="semantic_navigation_ros",
         executable="semantic_orchestrator",
         name="semantic_orchestrator",
-        parameters=[retrieval_config, {"use_sim_time": use_sim_time}],
+        parameters=[retrieval_config, {
+            "use_sim_time": use_sim_time,
+            "scene_id": scene_id,
+            "retrieval_method": frozen_config["retrieval_method"],
+            "multiview_aggregation": aggregation["method"],
+            "multiview_top_k": int(aggregation["top_k"]),
+            "global_similarity_weight": float(weights["global_similarity"]),
+            "object_match_weight": float(weights["object_match"]),
+            "crop_similarity_weight": float(weights["crop_similarity"]),
+            "relation_match_weight": float(weights["relation_match"]),
+            "room_match_weight": float(weights["room_match"]),
+            "rejection_threshold": float(frozen_config["rejection_threshold"]),
+        }],
         additional_env=_extra_env,
         output="screen",
+        condition=IfCondition(start_semantic),
+    )
+    graph_visualizer_node = Node(
+        package="semantic_evaluation",
+        executable="graph_visualizer",
+        name="graph_visualizer",
+        parameters=[{"use_sim_time": use_sim_time}],
+        output="screen",
+        condition=IfCondition(start_semantic),
+    )
+    topology_mapper_node = Node(
+        package="semantic_navigation_ros",
+        executable="topology_mapper",
+        name="topology_mapper",
+        parameters=[mapping_config, {
+            "use_sim_time": use_sim_time,
+            "scene_id": scene_id,
+        }],
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("start_auto_mapping")),
     )
 
     # ------------------------------------------------------------------ #
@@ -507,20 +693,34 @@ def generate_launch_description() -> LaunchDescription:
         map_arg,
         world_arg,
         camera_mast_arg,
+        spawn_x_arg,
+        spawn_y_arg,
+        spawn_yaw_arg,
         world_name_arg,
+        scene_id_arg,
+        graph_database_arg,
+        start_semantic_arg,
+        start_rviz_arg,
+        start_auto_mapping_arg,
+        headless_arg,
+        localization_mode_arg,
         # Environment
         set_tb3_model,
         set_gz_resource_path,
         # 1. Simulation
         gazebo,
         robot_state_publisher,
+        depth_optical_tf,
         spawn_turtlebot3,          # also chains the post-spawn pose reset
         tb3_bridge,
         camera_image_bridge,
+        depth_camera_info_bridge,
+        set_pose_service_bridge,
         # 2. Localization
         map_server,
         amcl,
         lifecycle_manager_localization,
+        slam,
         # 3. Navigation
         controller_server,
         smoother_server,
@@ -541,4 +741,6 @@ def generate_launch_description() -> LaunchDescription:
         semantic_lifecycle_manager,
         kg_manager_node,
         orchestrator_node,
+        graph_visualizer_node,
+        topology_mapper_node,
     ])

@@ -1,0 +1,29 @@
+scene_id: aws_small_house
+annotation_version: 1
+rooms:
+  - room_id: cocina
+    valid_nodes: [cocina_01, cocina_02]
+  - room_id: sala_estar
+    valid_nodes: [sala_estar_01, sala_estar_02]
+  - room_id: dormitorio
+    valid_nodes: [dormitorio_01]
+objects:
+  - category: coffee_machine
+    room_id: cocina
+    exact_valid_nodes: [cocina_01]
+    nearby_valid_nodes: [cocina_02]
+  - category: sofa
+    room_id: sala_estar
+    exact_valid_nodes: [sala_estar_01]
+    nearby_valid_nodes: [sala_estar_02]
+  - category: bed
+    room_id: dormitorio
+    exact_valid_nodes: [dormitorio_01]
+    nearby_valid_nodes: []
+relations:
+  - subject: coffee_machine
+    predicate: POSSIBLY_ON_TOP_OF
+    object: counter
+    relation_type: visual_2d_hypothesis
+    valid_nodes: [cocina_01]
+negative_queries: [negative_swimming_pool_es]

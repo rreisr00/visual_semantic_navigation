@@ -1,0 +1,6 @@
+scene_id: aws_small_house
+frame_id: map
+poses:
+  - pose_id: origin
+    position: [0.0, 0.0, 0.01]
+    orientation: [0.0, 0.0, 0.0, 1.0]
