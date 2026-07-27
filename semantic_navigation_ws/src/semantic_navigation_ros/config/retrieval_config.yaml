@@ -1,5 +1,21 @@
 semantic_orchestrator:
   ros__parameters:
-    retrieval_mode: "siglip_yolo"        # "siglip_pure" | "siglip_yolo"
-    hybrid_embedding_weight: 0.7         # cosine-similarity weight (siglip_yolo)
-    hybrid_object_weight: 0.3            # jaccard weight (siglip_yolo)
+    retrieval_mode: "siglip_yolo"
+    retrieval_method: "hybrid_semantic_retrieval"
+    multiview_aggregation: "max_topk"
+    multiview_top_k: 3
+    global_similarity_weight: 0.50
+    object_match_weight: 0.15
+    crop_similarity_weight: 0.10
+    relation_match_weight: 0.10
+    room_match_weight: 0.15
+    rejection_threshold: 0.12
+    default_top_k: 5
+    scene_id: "aws_small_house"
+    map_topic: "/map"
+    map_frame: "map"
+    goal_search_radius_m: 0.75
+    goal_obstacle_margin_m: 0.25
+    occupied_threshold: 65
+    allow_unknown_goals: false
+    navigation_timeout_s: 300.0
