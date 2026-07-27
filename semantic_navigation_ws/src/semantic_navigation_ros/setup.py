@@ -26,6 +26,7 @@ setup(
             "semantic_orchestrator = semantic_navigation_ros.semantic_orchestrator_node:main",
             "lifecycle_manager = semantic_navigation_ros.lifecycle_manager_node:main",
             "room_manager = semantic_navigation_ros.room_manager_node:main",
+            "topology_mapper = semantic_navigation_ros.topology_mapper_node:main",
         ],
     },
 )

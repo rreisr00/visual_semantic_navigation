@@ -1,0 +1,13 @@
+topology_mapper:
+  ros__parameters:
+    odom_topic: /odom
+    capture_action_name: capture_waypoint
+    scene_id: aws_small_house
+    minimum_translation_m: 1.5
+    minimum_rotation_deg: 45.0
+    minimum_time_s: 2.0
+    duplicate_distance_m: 0.5
+    maximum_edge_distance_m: 4.0
+    capture_views_deg: [0.0, 90.0, 180.0, 270.0]
+    rotate_robot: true
+    retry_period_s: 5.0

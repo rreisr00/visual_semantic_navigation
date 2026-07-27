@@ -38,8 +38,10 @@ import os
 import sqlite3
 import threading
 import time
+from math import hypot, sqrt
 from typing import List, Optional
 
+import numpy as np
 import rclpy
 import rclpy.executors
 from rclpy.callback_groups import MutuallyExclusiveCallbackGroup
@@ -52,7 +54,13 @@ from knowledge_graph.graph import Node, Edge
 from knowledge_graph_msgs.msg import Node as NodeMsg, Edge as EdgeMsg
 from knowledge_graph_msgs.msg import Content, Property
 
-from semantic_interfaces.msg import WaypointInfo, GraphEdge
+from semantic_interfaces.msg import (
+    GraphEdge,
+    ObjectDetection,
+    ObservationInfo,
+    SemanticRelation,
+    WaypointInfo,
+)
 from semantic_interfaces.srv import (
     AddRoom,
     GetGraphSnapshot,
@@ -61,6 +69,14 @@ from semantic_interfaces.srv import (
 )
 
 from semantic_navigation_core.rooms import Room, next_instance_name
+from semantic_navigation_core.association import AssociationConfig, match_object
+from semantic_navigation_core.geometry import transform_point
+from semantic_navigation_core.types import ObjectObservation as CoreObjectObservation
+
+
+SCHEMA_VERSION = 2
+EDGE_CONNECTED_TO = "CONNECTED_TO"
+EDGE_HAS_OBSERVATION = "HAS_OBSERVATION"
 
 
 class KnowledgeGraphBridgeNode(LifecycleNode):
@@ -71,9 +87,14 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
         self.declare_parameter(
             "db_file_path",
             os.path.join(
-                os.path.expanduser("~"), ".ros", "semantic_maps", "knowledge_graph.db"
+                os.path.expanduser("~"), ".ros", "semantic_maps", "{scene_id}", "graph.db"
             ),
         )
+        self.declare_parameter("scene_id", "aws_small_house")
+        self.declare_parameter("duplicate_distance_m", 0.5)
+        self.declare_parameter("maximum_edge_distance_m", 4.0)
+        self.declare_parameter("configuration_hash", "")
+        self.declare_parameter("object_association_crop_similarity", 0.75)
 
         self._graph: Optional[KnowledgeGraph] = None
         self._conn: Optional[sqlite3.Connection] = None
@@ -99,7 +120,8 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
 
     def on_configure(self, state: State) -> TransitionCallbackReturn:
         raw = self.get_parameter("db_file_path").get_parameter_value().string_value
-        db_path = os.path.expanduser(os.path.expandvars(raw))
+        scene_id = self.get_parameter("scene_id").value
+        db_path = os.path.expanduser(os.path.expandvars(raw)).format(scene_id=scene_id)
 
         try:
             os.makedirs(os.path.dirname(db_path), exist_ok=True)
@@ -114,6 +136,7 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
                 db_path, check_same_thread=False, timeout=10.0
             )
             self._conn.execute("PRAGMA journal_mode=WAL;")
+            self._conn.execute("PRAGMA foreign_keys=ON;")
         except sqlite3.Error as exc:
             self.get_logger().fatal(f"Cannot open SQLite DB '{db_path}': {exc}")
             return TransitionCallbackReturn.FAILURE
@@ -190,34 +213,53 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
         response: StoreWaypoint.Response,
     ) -> StoreWaypoint.Response:
         node_id = request.node_id.strip()
+        scene_id = request.scene_id.strip() or self.get_parameter("scene_id").value
+        merged = False
         try:
             if not node_id:
-                # No label given: name the waypoint after the room containing
-                # its pose ("<room>_<NN>"); timestamped fallback outside rooms.
-                node_id = self._auto_name_waypoint(
+                duplicate = self._nearest_waypoint(
                     float(request.pose.pose.position.x),
                     float(request.pose.pose.position.y),
+                    scene_id,
+                    float(self.get_parameter("duplicate_distance_m").value),
                 )
-            self._upsert_waypoint_node(node_id, request)
-            if request.detected_objects:
-                self._upsert_object_nodes_and_edges(
-                    node_id, list(request.detected_objects)
-                )
+                if duplicate is not None:
+                    node_id = duplicate.get_name()
+                    merged = True
+                else:
+                    node_id = self._auto_name_waypoint(
+                        float(request.pose.pose.position.x),
+                        float(request.pose.pose.position.y),
+                        scene_id,
+                    )
+            is_new = not self._graph.has_node(node_id)
+            self._upsert_waypoint_node(node_id, scene_id, request)
+            observation_id = self._upsert_observation(node_id, scene_id, request)
+            self._refresh_waypoint_embedding(node_id)
+            associations = self._upsert_object_nodes_and_edges(
+                node_id, observation_id, request
+            )
+            self._upsert_relation_edges(
+                node_id, observation_id, request, associations
+            )
             self._assign_rooms_for_waypoint(
                 node_id,
                 float(request.pose.pose.position.x),
                 float(request.pose.pose.position.y),
             )
+            if is_new:
+                self._connect_topology(node_id, scene_id)
             response.success = True
             response.message = "OK"
             response.node_id = node_id
+            response.merged_with_existing = merged
         except Exception as exc:  # noqa: BLE001
             self.get_logger().error(f"StoreWaypoint failed for '{node_id}': {exc}")
             response.success = False
             response.message = str(exc)
         return response
 
-    def _auto_name_waypoint(self, x: float, y: float) -> str:
+    def _auto_name_waypoint(self, x: float, y: float, scene_id: str) -> str:
         """Room-aware id: "<room>_<NN>" if (x, y) lies inside a room."""
         for node in self._graph.get_nodes():
             if node.get_type() != "room":
@@ -227,13 +269,16 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
                 waypoint_names = [
                     n.get_name()
                     for n in self._graph.get_nodes()
-                    if n.get_type() == "waypoint"
+                    if (
+                        n.get_type() == "waypoint"
+                        and str(_prop(n, "scene_id", "default")) == scene_id
+                    )
                 ]
                 return next_instance_name(room.room_id, waypoint_names)
-        return f"waypoint_{time.time_ns()}"
+        return f"{scene_id}_waypoint_{time.time_ns()}"
 
     def _upsert_waypoint_node(
-        self, node_id: str, request: StoreWaypoint.Request
+        self, node_id: str, scene_id: str, request: StoreWaypoint.Request
     ) -> None:
         pose = request.pose.pose
         if self._graph.has_node(node_id):
@@ -241,13 +286,29 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
         else:
             node = self._graph.create_node(node_id, "waypoint")
 
-        node.set_property("pose_x",    float(pose.position.x))
-        node.set_property("pose_y",    float(pose.position.y))
-        node.set_property("pose_z",    float(pose.position.z))
-        node.set_property("orient_x",  float(pose.orientation.x))
-        node.set_property("orient_y",  float(pose.orientation.y))
-        node.set_property("orient_z",  float(pose.orientation.z))
-        node.set_property("orient_w",  float(pose.orientation.w))
+        node.set_property("pose_x", float(pose.position.x))
+        node.set_property("pose_y", float(pose.position.y))
+        node.set_property("pose_z", float(pose.position.z))
+        node.set_property("orient_x", float(pose.orientation.x))
+        node.set_property("orient_y", float(pose.orientation.y))
+        node.set_property("orient_z", float(pose.orientation.z))
+        node.set_property("orient_w", float(pose.orientation.w))
+        node.set_property("scene_id", scene_id)
+        if not node.has_property("creation_timestamp"):
+            node.set_property("creation_timestamp", float(time.time()))
+        config_hash = request.configuration_hash.strip() or self.get_parameter(
+            "configuration_hash"
+        ).value
+        node.set_property("configuration_hash", str(config_hash))
+        goal = request.navigation_goal_pose.pose
+        if request.navigation_goal_pose.header.frame_id:
+            for key, value in (
+                ("goal_x", goal.position.x), ("goal_y", goal.position.y),
+                ("goal_z", goal.position.z), ("goal_qx", goal.orientation.x),
+                ("goal_qy", goal.orientation.y), ("goal_qz", goal.orientation.z),
+                ("goal_qw", goal.orientation.w),
+            ):
+                node.set_property(key, float(value))
         # Store the embedding as a JSON STRING, never as a vector property:
         # the vendored knowledge_graph rejects ROS msg vector fields on the
         # receiving side (array.array is not list), so a VDOUBLE property
@@ -273,23 +334,304 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
         self._graph.update_node(node)
 
     def _upsert_object_nodes_and_edges(
-        self, waypoint_id: str, labels: list[str]
-    ) -> None:
-        for label in labels:
-            obj_id = f"{waypoint_id}_{label}"
+        self,
+        waypoint_id: str,
+        observation_id: str,
+        request: StoreWaypoint.Request,
+    ) -> dict[str, str]:
+        detections = list(request.observation.detections)
+        if not detections:
+            detections = []
+            for label in request.detected_objects:
+                detection = ObjectDetection()
+                detection.class_name = label
+                detection.confidence = 1.0
+                detections.append(detection)
+        existing = self._persistent_objects(waypoint_id)
+        assigned: set[str] = set()
+        associations: dict[str, str] = {}
+        association_config = AssociationConfig(
+            minimum_crop_similarity=float(
+                self.get_parameter("object_association_crop_similarity").value
+            )
+        )
+        for detection in detections:
+            label = detection.class_name.strip()
+            if not label:
+                continue
+            crop = [float(value) for value in detection.crop_embedding]
+            map_position = _detection_map_position(
+                detection,
+                request.observation.depth_camera_pose
+                if request.observation.depth_camera_pose.header.frame_id
+                else request.observation.camera_pose,
+            )
+            transient = CoreObjectObservation(
+                label=label,
+                embedding=np.asarray(crop, dtype=np.float32) if crop else None,
+                position_3d=map_position,
+                position_3d_frame="map" if map_position is not None else "",
+            )
+            match = match_object(
+                transient, existing, association_config, excluded_ids=assigned
+            )
+            if match is None:
+                obj_id = self._next_object_id(waypoint_id, label)
+                association_confidence = 0.0
+            else:
+                obj_id = match.object_id
+                association_confidence = match.score
+            assigned.add(obj_id)
+            if detection.object_id:
+                associations[detection.object_id] = obj_id
+            associations.setdefault(label, obj_id)
 
             if self._graph.has_node(obj_id):
                 obj_node = self._graph.get_node(obj_id)
             else:
                 obj_node = self._graph.create_node(obj_id, "object")
 
-            obj_node.set_property("label",            label)
-            obj_node.set_property("source_waypoint",  waypoint_id)
+            obj_node.set_property("label", label)
+            obj_node.set_property("source_waypoint", waypoint_id)
+            obj_node.set_property("confidence", float(detection.confidence))
+            obj_node.set_property(
+                "association_confidence", float(association_confidence)
+            )
+            obj_node.set_property("last_seen", float(time.time()))
+            obj_node.set_property(
+                "bounding_box", json.dumps([float(v) for v in detection.bounding_box])
+            )
+            obj_node.set_property(
+                "crop_embedding", json.dumps([float(v) for v in detection.crop_embedding])
+            )
+            obj_node.set_property(
+                "position_2d", json.dumps([float(v) for v in detection.position_2d])
+            )
+            obj_node.set_property(
+                "position_3d",
+                json.dumps([float(v) for v in detection.position_3d])
+                if detection.position_3d_valid else "[]",
+            )
+            obj_node.set_property("position_3d_frame", detection.position_3d_frame)
+            obj_node.set_property(
+                "position_3d_map",
+                json.dumps(map_position) if map_position is not None else "[]",
+            )
             self._graph.update_node(obj_node)
 
             if not self._graph.has_edge("CONTAINS", waypoint_id, obj_id):
                 edge = self._graph.create_edge("CONTAINS", waypoint_id, obj_id)
                 self._graph.update_edge(edge)
+            if not self._graph.has_edge("OBSERVED_IN", obj_id, observation_id):
+                edge = self._graph.create_edge("OBSERVED_IN", obj_id, observation_id)
+                self._graph.update_edge(edge)
+            if match is None:
+                existing.append(CoreObjectObservation(
+                    label=label,
+                    object_id=obj_id,
+                    embedding=(
+                        np.asarray(crop, dtype=np.float32) if crop else None
+                    ),
+                    position_3d=map_position,
+                    position_3d_frame="map" if map_position is not None else "",
+                ))
+        return associations
+
+    def _persistent_objects(self, waypoint_id: str) -> list[CoreObjectObservation]:
+        objects = []
+        for edge in self._graph.get_edges_from_node_by_type("CONTAINS", waypoint_id):
+            object_id = edge.get_target_node()
+            if not self._graph.has_node(object_id):
+                continue
+            node = self._graph.get_node(object_id)
+            if node.get_type() != "object":
+                continue
+            raw_embedding = str(_prop(node, "crop_embedding", "[]"))
+            try:
+                embedding = np.asarray(json.loads(raw_embedding), dtype=np.float32)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                embedding = np.asarray([], dtype=np.float32)
+            raw_position = str(_prop(node, "position_3d_map", "[]"))
+            try:
+                position = json.loads(raw_position)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                position = []
+            objects.append(CoreObjectObservation(
+                label=str(_prop(node, "label", "")),
+                object_id=object_id,
+                embedding=embedding if embedding.size else None,
+                position_3d=(
+                    tuple(float(value) for value in position)
+                    if len(position) == 3 else None
+                ),
+                position_3d_frame="map" if len(position) == 3 else "",
+            ))
+        return objects
+
+    def _next_object_id(self, waypoint_id: str, label: str) -> str:
+        base = f"{waypoint_id}_{label}"
+        if not self._graph.has_node(base):
+            return base
+        suffix = 2
+        while self._graph.has_node(f"{base}_{suffix}"):
+            suffix += 1
+        return f"{base}_{suffix}"
+
+    def _upsert_observation(
+        self, waypoint_id: str, scene_id: str, request: StoreWaypoint.Request
+    ) -> str:
+        observation = request.observation
+        observation_id = observation.observation_id.strip()
+        if not observation_id:
+            stamp = observation.timestamp
+            observation_id = f"{scene_id}_{waypoint_id}_{stamp.sec}_{stamp.nanosec}"
+        graph_id = f"observation::{observation_id}"
+        node = (
+            self._graph.get_node(graph_id)
+            if self._graph.has_node(graph_id)
+            else self._graph.create_node(graph_id, "observation")
+        )
+        embedding = list(observation.image_embedding or request.visual_embedding)
+        camera_pose = observation.camera_pose.pose
+        payload = {
+            "observation_id": observation_id,
+            "node_id": waypoint_id,
+            "scene_id": scene_id,
+            "image_path": observation.image_path,
+            "timestamp": [observation.timestamp.sec, observation.timestamp.nanosec],
+            "camera_frame": observation.camera_frame,
+            "camera_pose": _pose_to_list(camera_pose),
+            "depth_camera_frame": observation.depth_camera_frame,
+            "depth_camera_pose": _pose_to_list(
+                observation.depth_camera_pose.pose
+            ),
+            "requested_yaw": float(observation.requested_yaw),
+            "measured_yaw": float(observation.measured_yaw),
+            "angular_error": float(observation.angular_error),
+            "image_valid": bool(observation.image_valid),
+            "depth_valid": bool(observation.depth_valid),
+            "image_embedding": [float(v) for v in embedding],
+            "detections": [_detection_to_dict(d) for d in observation.detections],
+            "relations": [_relation_to_dict(r) for r in observation.relations],
+        }
+        node.set_property("observation_id", observation_id)
+        node.set_property("scene_id", scene_id)
+        node.set_property("timestamp_sec", float(
+            observation.timestamp.sec + observation.timestamp.nanosec * 1e-9
+        ))
+        node.set_property("payload", json.dumps(payload, sort_keys=True))
+        self._graph.update_node(node)
+        if not self._graph.has_edge(EDGE_HAS_OBSERVATION, waypoint_id, graph_id):
+            edge = self._graph.create_edge(EDGE_HAS_OBSERVATION, waypoint_id, graph_id)
+            self._graph.update_edge(edge)
+        return graph_id
+
+    def _refresh_waypoint_embedding(self, waypoint_id: str) -> None:
+        embeddings: list[list[float]] = []
+        for edge in self._graph.get_edges_from_node_by_type(
+            EDGE_HAS_OBSERVATION, waypoint_id
+        ):
+            observation = self._graph.get_node(edge.get_target_node())
+            payload = json.loads(str(_prop(observation, "payload", "{}")))
+            values = [float(v) for v in payload.get("image_embedding", [])]
+            if values:
+                embeddings.append(values)
+        if not embeddings or len({len(values) for values in embeddings}) != 1:
+            return
+        mean = [
+            sum(values[i] for values in embeddings) / len(embeddings)
+            for i in range(len(embeddings[0]))
+        ]
+        norm = sqrt(sum(value * value for value in mean))
+        if norm > 0.0:
+            mean = [value / norm for value in mean]
+        node = self._graph.get_node(waypoint_id)
+        node.set_property("visual_embedding", json.dumps(mean))
+        self._graph.update_node(node)
+
+    def _upsert_relation_edges(
+        self,
+        waypoint_id: str,
+        observation_id: str,
+        request: StoreWaypoint.Request,
+        associations: dict[str, str],
+    ) -> None:
+        objects = [
+            edge.get_target_node()
+            for edge in self._graph.get_edges_from_node_by_type("CONTAINS", waypoint_id)
+            if (
+                self._graph.has_node(edge.get_target_node())
+                and self._graph.get_node(edge.get_target_node()).get_type() == "object"
+            )
+        ]
+
+        def resolve(identifier: str) -> str:
+            if identifier in associations:
+                return associations[identifier]
+            for object_id in objects:
+                node = self._graph.get_node(object_id)
+                if identifier in (object_id, str(_prop(node, "label", ""))):
+                    return object_id
+            return ""
+
+        for relation in request.observation.relations:
+            source = resolve(relation.subject_id)
+            target = resolve(relation.object_id)
+            if not source or not target or source == target or not relation.predicate:
+                continue
+            edge = (
+                self._graph.get_edge(relation.predicate, source, target)
+                if self._graph.has_edge(relation.predicate, source, target)
+                else self._graph.create_edge(relation.predicate, source, target)
+            )
+            edge.set_property("confidence", float(relation.confidence))
+            edge.set_property("reference_frame", str(relation.reference_frame))
+            edge.set_property("source_observation_id", observation_id)
+            edge.set_property("relation_type", str(
+                relation.relation_type or "visual_2d_hypothesis"
+            ))
+            self._graph.update_edge(edge)
+
+    def _nearest_waypoint(
+        self, x: float, y: float, scene_id: str, maximum_distance: float,
+        exclude: str = "",
+    ) -> Optional[Node]:
+        nearest = None
+        best = float("inf")
+        for candidate in self._graph.get_nodes():
+            if candidate.get_type() != "waypoint" or candidate.get_name() == exclude:
+                continue
+            if str(_prop(candidate, "scene_id", "default")) != scene_id:
+                continue
+            distance = hypot(
+                x - float(_prop(candidate, "pose_x", 0.0)),
+                y - float(_prop(candidate, "pose_y", 0.0)),
+            )
+            if distance < best:
+                nearest, best = candidate, distance
+        return nearest if best <= maximum_distance else None
+
+    def _connect_topology(self, node_id: str, scene_id: str) -> None:
+        node = self._graph.get_node(node_id)
+        x = float(_prop(node, "pose_x", 0.0))
+        y = float(_prop(node, "pose_y", 0.0))
+        neighbor = self._nearest_waypoint(
+            x, y, scene_id,
+            float(self.get_parameter("maximum_edge_distance_m").value),
+            exclude=node_id,
+        )
+        if neighbor is None:
+            return
+        distance = hypot(
+            x - float(_prop(neighbor, "pose_x", 0.0)),
+            y - float(_prop(neighbor, "pose_y", 0.0)),
+        )
+        for source, target in ((node_id, neighbor.get_name()), (neighbor.get_name(), node_id)):
+            if self._graph.has_edge(EDGE_CONNECTED_TO, source, target):
+                continue
+            edge = self._graph.create_edge(EDGE_CONNECTED_TO, source, target)
+            edge.set_property("distance_m", float(distance))
+            self._graph.update_edge(edge)
 
     # ------------------------------------------------------------------ #
     # Rooms: /add_room service + waypoint classification
@@ -408,9 +750,12 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
         response: GetWaypoints.Response,
     ) -> GetWaypoints.Response:
         class_filter = request.class_filter or "waypoint"
+        scene_filter = request.scene_id.strip()
         try:
             for node in self._graph.get_nodes():
                 if node.get_type() != class_filter:
+                    continue
+                if scene_filter and str(_prop(node, "scene_id", "default")) != scene_filter:
                     continue
                 response.waypoints.append(self._node_to_waypoint_info(node))
             response.success = True
@@ -461,6 +806,8 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
     def _node_to_waypoint_info(self, node: Node) -> WaypointInfo:
         info = WaypointInfo()
         info.node_id = node.get_name()
+        info.scene_id = str(_prop(node, "scene_id", "default"))
+        info.configuration_hash = str(_prop(node, "configuration_hash", ""))
 
         pose = PoseStamped()
         pose.header.frame_id = "map"
@@ -472,6 +819,19 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
         pose.pose.orientation.z = float(_prop(node, "orient_z", 0.0))
         pose.pose.orientation.w = float(_prop(node, "orient_w", 1.0))
         info.pose = pose
+        goal = PoseStamped()
+        goal.header.frame_id = "map"
+        goal.pose.position.x = float(_prop(node, "goal_x", pose.pose.position.x))
+        goal.pose.position.y = float(_prop(node, "goal_y", pose.pose.position.y))
+        goal.pose.position.z = float(_prop(node, "goal_z", pose.pose.position.z))
+        goal.pose.orientation.x = float(_prop(node, "goal_qx", pose.pose.orientation.x))
+        goal.pose.orientation.y = float(_prop(node, "goal_qy", pose.pose.orientation.y))
+        goal.pose.orientation.z = float(_prop(node, "goal_qz", pose.pose.orientation.z))
+        goal.pose.orientation.w = float(_prop(node, "goal_qw", pose.pose.orientation.w))
+        info.navigation_goal_pose = goal
+        created = float(_prop(node, "creation_timestamp", 0.0))
+        info.creation_timestamp.sec = int(created)
+        info.creation_timestamp.nanosec = int((created - int(created)) * 1e9)
 
         # visual_embedding is stored as a JSON string (legacy graphs may still
         # hold a float list in memory — accept both).
@@ -482,6 +842,12 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
 
         # Reconstruct detected objects from CONTAINS edges → object nodes' labels.
         info.detected_objects = self._collect_object_labels(node.get_name())
+        info.observations = self._collect_observations(node.get_name())
+        for edge in self._graph.get_edges_to_node_by_type("CONTAINS", node.get_name()):
+            source = self._graph.get_node(edge.get_source_node())
+            if source.get_type() == "room":
+                info.room_label = source.get_name()
+                break
         return info
 
     def _collect_object_labels(self, waypoint_id: str) -> list[str]:
@@ -494,6 +860,67 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
             if label:
                 labels.append(str(label))
         return labels
+
+    def _collect_observations(self, waypoint_id: str) -> list[ObservationInfo]:
+        observations: list[ObservationInfo] = []
+        for edge in self._graph.get_edges_from_node_by_type(
+            EDGE_HAS_OBSERVATION, waypoint_id
+        ):
+            node = self._graph.get_node(edge.get_target_node())
+            payload = json.loads(str(_prop(node, "payload", "{}")))
+            msg = ObservationInfo()
+            msg.observation_id = str(payload.get("observation_id", ""))
+            msg.node_id = waypoint_id
+            msg.image_path = str(payload.get("image_path", ""))
+            timestamp = payload.get("timestamp", [0, 0])
+            msg.timestamp.sec = int(timestamp[0])
+            msg.timestamp.nanosec = int(timestamp[1])
+            msg.camera_frame = str(payload.get("camera_frame", ""))
+            _list_to_pose(payload.get("camera_pose", []), msg.camera_pose)
+            msg.depth_camera_frame = str(payload.get("depth_camera_frame", ""))
+            _list_to_pose(
+                payload.get("depth_camera_pose", []), msg.depth_camera_pose
+            )
+            msg.requested_yaw = float(payload.get("requested_yaw", 0.0))
+            msg.measured_yaw = float(payload.get("measured_yaw", 0.0))
+            msg.angular_error = float(payload.get("angular_error", 0.0))
+            msg.image_valid = bool(payload.get("image_valid", False))
+            msg.depth_valid = bool(payload.get("depth_valid", False))
+            msg.image_embedding = [float(v) for v in payload.get("image_embedding", [])]
+            for detection in payload.get("detections", []):
+                item = ObjectDetection()
+                item.object_id = str(detection.get("object_id", ""))
+                item.class_name = str(detection.get("class_name", ""))
+                item.confidence = float(detection.get("confidence", 0.0))
+                item.bounding_box = [float(v) for v in detection.get("bounding_box", [0.0] * 4)]
+                item.crop_embedding = [float(v) for v in detection.get("crop_embedding", [])]
+                item.position_2d = [
+                    float(v) for v in detection.get("position_2d", [0.0, 0.0])
+                ]
+                position_3d = detection.get("position_3d", [])
+                if len(position_3d) == 3:
+                    item.position_3d = [float(v) for v in position_3d]
+                    item.position_3d_valid = True
+                    item.position_3d_frame = str(
+                        detection.get("position_3d_frame", "")
+                    )
+                msg.detections.append(item)
+            for relation in payload.get("relations", []):
+                item = SemanticRelation()
+                item.subject_id = str(relation.get("subject_id", ""))
+                item.predicate = str(relation.get("predicate", ""))
+                item.object_id = str(relation.get("object_id", ""))
+                item.confidence = float(relation.get("confidence", 0.0))
+                item.reference_frame = str(relation.get("reference_frame", ""))
+                item.source_observation_id = str(relation.get("source_observation_id", ""))
+                item.relation_type = str(relation.get("relation_type", ""))
+                stamp = relation.get("timestamp", [0, 0])
+                item.timestamp.sec = int(stamp[0])
+                item.timestamp.nanosec = int(stamp[1])
+                msg.relations.append(item)
+            observations.append(msg)
+        observations.sort(key=lambda value: (value.timestamp.sec, value.timestamp.nanosec))
+        return observations
 
     # ------------------------------------------------------------------ #
     # Graph method patching
@@ -535,7 +962,6 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
             try:
                 with self._db_lock:
                     c = self._conn.cursor()
-                    c.execute("DELETE FROM nodes WHERE name = ?;", (node_name,))
                     for e in edges_snapshot:
                         if (
                             e.get_source_node() == node_name
@@ -547,6 +973,8 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
                                 " WHERE type=? AND source_node=? AND target_node=?;",
                                 (msg.type, msg.source_node, msg.target_node),
                             )
+                    # Foreign keys require incident edges to disappear first.
+                    c.execute("DELETE FROM nodes WHERE name = ?;", (node_name,))
                     self._conn.commit()
             except sqlite3.Error as exc:
                 self.get_logger().error(
@@ -607,6 +1035,32 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
                         FOREIGN KEY (target_node) REFERENCES nodes (name)
                     );
                 """)
+                c.execute("""
+                    CREATE TABLE IF NOT EXISTS metadata (
+                        key   TEXT PRIMARY KEY,
+                        value TEXT NOT NULL
+                    );
+                """)
+                c.execute(
+                    "INSERT INTO metadata(key, value) VALUES('schema_version', ?)"
+                    " ON CONFLICT(key) DO UPDATE SET value=excluded.value;",
+                    (str(SCHEMA_VERSION),),
+                )
+                c.execute(
+                    "INSERT INTO metadata(key, value) VALUES('scene_id', ?)"
+                    " ON CONFLICT(key) DO UPDATE SET value=excluded.value;",
+                    (str(self.get_parameter("scene_id").value),),
+                )
+                c.execute(
+                    "INSERT INTO metadata(key, value) VALUES('configuration_hash', ?)"
+                    " ON CONFLICT(key) DO UPDATE SET value=excluded.value;",
+                    (str(self.get_parameter("configuration_hash").value),),
+                )
+                c.execute("CREATE INDEX IF NOT EXISTS idx_nodes_type ON nodes(type);")
+                c.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_edges_source_type"
+                    " ON edges(source_node, type);"
+                )
                 self._conn.commit()
             return True
         except sqlite3.Error as exc:
@@ -697,6 +1151,75 @@ def _prop(node: Node, key: str, default):
     return default
 
 
+def _pose_to_list(pose) -> list[float]:
+    return [
+        float(pose.position.x), float(pose.position.y), float(pose.position.z),
+        float(pose.orientation.x), float(pose.orientation.y),
+        float(pose.orientation.z), float(pose.orientation.w),
+    ]
+
+
+def _list_to_pose(values, pose_stamped: PoseStamped) -> None:
+    pose_stamped.header.frame_id = "map"
+    if len(values) != 7:
+        pose_stamped.pose.orientation.w = 1.0
+        return
+    pose_stamped.pose.position.x = float(values[0])
+    pose_stamped.pose.position.y = float(values[1])
+    pose_stamped.pose.position.z = float(values[2])
+    pose_stamped.pose.orientation.x = float(values[3])
+    pose_stamped.pose.orientation.y = float(values[4])
+    pose_stamped.pose.orientation.z = float(values[5])
+    pose_stamped.pose.orientation.w = float(values[6])
+
+
+def _detection_to_dict(detection: ObjectDetection) -> dict:
+    return {
+        "object_id": detection.object_id,
+        "class_name": detection.class_name,
+        "confidence": float(detection.confidence),
+        "bounding_box": [float(v) for v in detection.bounding_box],
+        "crop_embedding": [float(v) for v in detection.crop_embedding],
+        "position_2d": [float(v) for v in detection.position_2d],
+        "position_3d": (
+            [float(v) for v in detection.position_3d]
+            if detection.position_3d_valid else []
+        ),
+        "position_3d_frame": detection.position_3d_frame,
+    }
+
+
+def _detection_map_position(
+    detection: ObjectDetection, camera_pose: PoseStamped
+) -> tuple[float, float, float] | None:
+    if not detection.position_3d_valid:
+        return None
+    pose = camera_pose.pose
+    return transform_point(
+        tuple(float(value) for value in detection.position_3d),
+        (pose.position.x, pose.position.y, pose.position.z),
+        (
+            pose.orientation.x,
+            pose.orientation.y,
+            pose.orientation.z,
+            pose.orientation.w,
+        ),
+    )
+
+
+def _relation_to_dict(relation: SemanticRelation) -> dict:
+    return {
+        "subject_id": relation.subject_id,
+        "predicate": relation.predicate,
+        "object_id": relation.object_id,
+        "confidence": float(relation.confidence),
+        "reference_frame": relation.reference_frame,
+        "source_observation_id": relation.source_observation_id,
+        "relation_type": relation.relation_type,
+        "timestamp": [relation.timestamp.sec, relation.timestamp.nanosec],
+    }
+
+
 # ------------------------------------------------------------------ #
 # Property (de)serialisation – wire-compatible with knowledge_graph_db
 # ------------------------------------------------------------------ #
@@ -705,16 +1228,26 @@ def _serialize_properties(properties: List[Property]) -> str:
     d: dict = {}
     for p in properties:
         c = p.value
-        if   c.type == Content.BOOL:    d[p.key] = bool(c.bool_value)
-        elif c.type == Content.INT:     d[p.key] = int(c.int_value)
-        elif c.type == Content.FLOAT:   d[p.key] = float(c.float_value)
-        elif c.type == Content.DOUBLE:  d[p.key] = float(c.double_value)
-        elif c.type == Content.STRING:  d[p.key] = str(c.string_value)
-        elif c.type == Content.VBOOL:   d[p.key] = list(c.bool_vector)
-        elif c.type == Content.VINT:    d[p.key] = list(c.int_vector)
-        elif c.type == Content.VFLOAT:  d[p.key] = list(c.float_vector)
-        elif c.type == Content.VDOUBLE: d[p.key] = list(c.double_vector)
-        elif c.type == Content.VSTRING: d[p.key] = list(c.string_vector)
+        if c.type == Content.BOOL:
+            d[p.key] = bool(c.bool_value)
+        elif c.type == Content.INT:
+            d[p.key] = int(c.int_value)
+        elif c.type == Content.FLOAT:
+            d[p.key] = float(c.float_value)
+        elif c.type == Content.DOUBLE:
+            d[p.key] = float(c.double_value)
+        elif c.type == Content.STRING:
+            d[p.key] = str(c.string_value)
+        elif c.type == Content.VBOOL:
+            d[p.key] = list(c.bool_vector)
+        elif c.type == Content.VINT:
+            d[p.key] = list(c.int_vector)
+        elif c.type == Content.VFLOAT:
+            d[p.key] = list(c.float_vector)
+        elif c.type == Content.VDOUBLE:
+            d[p.key] = list(c.double_vector)
+        elif c.type == Content.VSTRING:
+            d[p.key] = list(c.string_vector)
     return json.dumps(d)
 
 

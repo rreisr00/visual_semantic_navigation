@@ -4,4 +4,9 @@ knowledge_graph_bridge:
     # Tilde (~) and environment variables ($HOME, $ROS_HOME, etc.) are expanded
     # at runtime by the node.  The directory is created automatically if it does
     # not exist.
-    db_file_path: "~/.ros/semantic_maps/knowledge_graph.db"
+    db_file_path: "~/.ros/semantic_maps/{scene_id}/graph.db"
+    scene_id: "aws_small_house"
+    duplicate_distance_m: 0.5
+    maximum_edge_distance_m: 4.0
+    object_association_crop_similarity: 0.75
+    configuration_hash: ""
