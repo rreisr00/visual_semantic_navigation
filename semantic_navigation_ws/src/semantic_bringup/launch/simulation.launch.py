@@ -207,12 +207,14 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------ #
     set_tb3_model = SetEnvironmentVariable("TURTLEBOT3_MODEL", "waffle")
     # Append (never overwrite): a pre-set GZ_SIM_RESOURCE_PATH lets users add
-    # model dirs for extra worlds (e.g. cloned AWS bookstore/warehouse), and
-    # the turtlebot3_gazebo models are needed by the turtlebot3_* worlds.
+    # model dirs for extra worlds (e.g. cloned AWS bookstore/warehouse), the
+    # package-local models are used by semantic_office_lab, and the
+    # turtlebot3_gazebo models are needed by the turtlebot3_* worlds.
     set_gz_resource_path = SetEnvironmentVariable(
         "GZ_SIM_RESOURCE_PATH",
         os.pathsep.join(p for p in [
             os.environ.get("GZ_SIM_RESOURCE_PATH", ""),
+            os.path.join(_bringup_share, "models"),
             os.path.join(_aws_share, "models"),
             os.path.join(_tb3_share, "models"),
         ] if p),
