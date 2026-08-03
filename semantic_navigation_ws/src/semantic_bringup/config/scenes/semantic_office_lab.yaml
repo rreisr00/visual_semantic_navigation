@@ -9,6 +9,12 @@ start_poses_file: config/scenes/semantic_office_lab_start_poses.yaml
 ground_truth_file: config/scenes/semantic_office_lab_ground_truth.yaml
 robot_model: turtlebot3_waffle_semantic
 spawn: {x: -4.0, y: 0.0, yaw: 0.0}
+launch:
+  use_sim_time: true
+  start_semantic: true
+  start_rviz: true
+  start_auto_mapping: false
+  headless: false
 camera_topics: {rgb: /camera/image_raw, camera_info: /camera/camera_info}
 depth_topics: {image: /camera/depth/image_raw, camera_info: /camera/depth/camera_info}
 scan_topic: /scan

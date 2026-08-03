@@ -19,6 +19,8 @@ Starts:
 
 Launch arguments
 ----------------
+  scene_config  (default: empty) bundled scene name or path to a scene YAML;
+                explicit CLI launch arguments override YAML values
   use_sim_time   (default: true)
   map            (default: aws_robomaker_small_house_world bundled map)
   world          (default: semantic_bringup/worlds/semantic_test.world)
@@ -47,6 +49,7 @@ from launch.actions import (
 from launch.conditions import IfCondition
 from launch.event_handlers import OnProcessExit
 from launch.launch_description_sources import PythonLaunchDescriptionSource
+from launch.logging import get_logger
 from launch.substitutions import (
     IfElseSubstitution,
     LaunchConfiguration,
@@ -57,6 +60,7 @@ from launch_ros.actions import Node
 from launch_ros.descriptions import ParameterFile
 from launch_ros.substitutions import FindPackageShare
 from nav2_common.launch import RewrittenYaml
+from semantic_bringup.scene_config import apply_yaml_defaults, load_scene_launch_config
 from semantic_navigation_core.configuration import load_frozen_config
 
 
@@ -93,8 +97,22 @@ def generate_launch_description() -> LaunchDescription:
     _kgr_share     = get_package_share_directory("knowledge_graph_ros")
     _tb3_share     = get_package_share_directory("turtlebot3_gazebo")
 
-    _params_file = os.path.join(_bringup_share, "config", "nav2_params.yaml")
-    _rviz_config = os.path.join(_bringup_share, "config", "rviz_config.rviz")
+    _default_params_file = os.path.join(
+        _bringup_share, "config", "nav2_params.yaml"
+    )
+    _default_rviz_config = os.path.join(
+        _bringup_share, "config", "rviz_config.rviz"
+    )
+    _default_retrieval_config = os.path.join(
+        _snr_share, "config", "retrieval_config.yaml"
+    )
+    _default_mapping_config = os.path.join(
+        _snr_share, "config", "mapping_config.yaml"
+    )
+    _default_vision_config = os.path.join(
+        _svr_share, "config", "vision_config.yaml"
+    )
+    _default_kg_config = os.path.join(_kgr_share, "config", "kg_config.yaml")
     _bt_to_pose  = os.path.join(
         _bringup_share, "config", "behavior_trees",
         "navigate_to_pose_w_replanning_and_recovery.xml",
@@ -107,6 +125,14 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------ #
     # Launch arguments
     # ------------------------------------------------------------------ #
+    scene_config_arg = DeclareLaunchArgument(
+        "scene_config",
+        default_value="",
+        description=(
+            "Bundled scene name (for example aws_small_house) or path to a "
+            "scene YAML. Explicit launch arguments override YAML values."
+        ),
+    )
     use_sim_time_arg = DeclareLaunchArgument(
         "use_sim_time", default_value="true",
         description="Use Gazebo simulation clock.",
@@ -165,6 +191,59 @@ def generate_launch_description() -> LaunchDescription:
         "localization_mode", default_value="localization",
         description="'localization' uses map_server+AMCL; 'slam' uses slam_toolbox.",
     )
+    nav2_params_file_arg = DeclareLaunchArgument(
+        "nav2_params_file",
+        default_value=_default_params_file,
+        description="Nav2 ROS parameter YAML.",
+    )
+    rviz_config_file_arg = DeclareLaunchArgument(
+        "rviz_config_file",
+        default_value=_default_rviz_config,
+        description="RViz configuration file.",
+    )
+    vision_params_file_arg = DeclareLaunchArgument(
+        "vision_params_file",
+        default_value=_default_vision_config,
+        description="Visual encoder ROS parameter YAML.",
+    )
+    knowledge_graph_params_file_arg = DeclareLaunchArgument(
+        "knowledge_graph_params_file",
+        default_value=_default_kg_config,
+        description="Knowledge graph bridge ROS parameter YAML.",
+    )
+    retrieval_params_file_arg = DeclareLaunchArgument(
+        "retrieval_params_file",
+        default_value=_default_retrieval_config,
+        description="Semantic retrieval ROS parameter YAML.",
+    )
+    mapping_params_file_arg = DeclareLaunchArgument(
+        "mapping_params_file",
+        default_value=_default_mapping_config,
+        description="Automatic topology mapping ROS parameter YAML.",
+    )
+
+    def _apply_scene_config(context):
+        reference = LaunchConfiguration("scene_config").perform(context).strip()
+        if not reference:
+            return []
+        config_path, yaml_values = load_scene_launch_config(
+            reference, _bringup_share
+        )
+        applied = apply_yaml_defaults(context.launch_configurations, yaml_values)
+        overridden = sorted(set(yaml_values) - set(applied))
+        logger = get_logger("semantic_bringup.scene_config")
+        logger.info(
+            f"Loaded scene configuration '{config_path}'"
+            + (f" (applied: {', '.join(sorted(applied))})" if applied else "")
+        )
+        if overridden:
+            logger.info(
+                "Explicit launch values override YAML fields: "
+                + ", ".join(overridden)
+            )
+        return []
+
+    load_scene_config = OpaqueFunction(function=_apply_scene_config)
 
     use_sim_time = LaunchConfiguration("use_sim_time")
     map_yaml     = LaunchConfiguration("map")
@@ -174,6 +253,12 @@ def generate_launch_description() -> LaunchDescription:
     start_semantic = LaunchConfiguration("start_semantic")
     headless = LaunchConfiguration("headless")
     localization_mode = LaunchConfiguration("localization_mode")
+    params_file = LaunchConfiguration("nav2_params_file")
+    rviz_config = LaunchConfiguration("rviz_config_file")
+    vision_config = LaunchConfiguration("vision_params_file")
+    kg_config = LaunchConfiguration("knowledge_graph_params_file")
+    retrieval_config = LaunchConfiguration("retrieval_params_file")
+    mapping_config = LaunchConfiguration("mapping_params_file")
     localization_condition = IfCondition(PythonExpression([
         "'", localization_mode, "' == 'localization'"
     ]))
@@ -190,7 +275,7 @@ def generate_launch_description() -> LaunchDescription:
 
     configured_params = ParameterFile(
         RewrittenYaml(
-            source_file=_params_file,
+            source_file=params_file,
             root_key="",
             param_rewrites={
                 "use_sim_time":                    use_sim_time,
@@ -553,7 +638,7 @@ def generate_launch_description() -> LaunchDescription:
         executable="rviz2",
         name="rviz2",
         output="screen",
-        arguments=["-d", _rviz_config],
+        arguments=["-d", rviz_config],
         parameters=[{"use_sim_time": use_sim_time}],    
         condition=IfCondition(LaunchConfiguration("start_rviz")),
     )
@@ -566,14 +651,10 @@ def generate_launch_description() -> LaunchDescription:
         "PYTHONPATH": _venv_site + ":" + os.environ.get("PYTHONPATH", "")
     }
 
-    retrieval_config = os.path.join(_snr_share, "config", "retrieval_config.yaml")
-    mapping_config = os.path.join(_snr_share, "config", "mapping_config.yaml")
     frozen_config_path = os.path.join(
         _snr_share, "config", "frozen_retrieval_config.yaml"
     )
     frozen_config, frozen_hash = load_frozen_config(frozen_config_path)
-    vision_config    = os.path.join(_svr_share, "config", "vision_config.yaml")
-    kg_config        = os.path.join(_kgr_share, "config", "kg_config.yaml")
     repo_root = _bringup_share
     for _ in range(10):
         candidate = os.path.join(repo_root, "experiments", "yolov8n.pt")
@@ -691,6 +772,11 @@ def generate_launch_description() -> LaunchDescription:
     # ------------------------------------------------------------------ #
     return LaunchDescription([
         # Arguments
+        # Load the YAML before declaring other arguments. Include/CLI values
+        # are already present in the context, so they keep highest precedence;
+        # declarations below only fill values missing from both CLI and YAML.
+        scene_config_arg,
+        load_scene_config,
         use_sim_time_arg,
         map_arg,
         world_arg,
@@ -706,6 +792,12 @@ def generate_launch_description() -> LaunchDescription:
         start_auto_mapping_arg,
         headless_arg,
         localization_mode_arg,
+        nav2_params_file_arg,
+        rviz_config_file_arg,
+        vision_params_file_arg,
+        knowledge_graph_params_file_arg,
+        retrieval_params_file_arg,
+        mapping_params_file_arg,
         # Environment
         set_tb3_model,
         set_gz_resource_path,

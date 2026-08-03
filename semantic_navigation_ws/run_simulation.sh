@@ -5,9 +5,10 @@
 #   ./run_simulation.sh                          # build completo
 #   ./run_simulation.sh --no-build               # salta el build (solo source + launch)
 #   ./run_simulation.sh --pkg semantic_bringup   # build solo de un paquete
+#   ./run_simulation.sh --config aws_small_house # carga config/scenes/aws_small_house.yaml
 #
 # Argumentos extra tras '--' se pasan al launch:
-#   ./run_simulation.sh -- use_sim_time:=false map:=/ruta/mapa.yaml
+#   ./run_simulation.sh --config aws_small_house -- headless:=true
 
 set -euo pipefail
 
@@ -29,16 +30,22 @@ WS_SETUP="${WS_DIR}/install/setup.bash"
 # ── Argparse ──────────────────────────────────────────────────────────────────
 DO_BUILD=true
 PKG_FILTER=""
+SCENE_CONFIG=""
 LAUNCH_ARGS=()
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --no-build)   DO_BUILD=false; shift ;;
         --pkg)        PKG_FILTER="$2"; shift 2 ;;
+        --config)     SCENE_CONFIG="$2"; shift 2 ;;
         --)           shift; LAUNCH_ARGS=("$@"); break ;;
         *)            die "Opción desconocida: $1  (usa -- para pasar args al launch)" ;;
     esac
 done
+
+if [[ -n "$SCENE_CONFIG" ]]; then
+    LAUNCH_ARGS=("scene_config:=${SCENE_CONFIG}" "${LAUNCH_ARGS[@]}")
+fi
 
 # ── ROS base setup ────────────────────────────────────────────────────────────
 [[ -f "$ROS_SETUP" ]] || die "No se encontró ROS $ROS_DISTRO en $ROS_SETUP"

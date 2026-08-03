@@ -1,11 +1,19 @@
 scene_id: aws_small_house
 world_file: worlds/semantic_test.world
+localization_mode: localization
 map_file: aws_robomaker_small_house_world/maps/turtlebot3_waffle_pi/map.yaml
 graph_database: ~/.ros/semantic_maps/aws_small_house/graph.db
 queries_file: config/scenes/aws_small_house_queries.yaml
 start_poses_file: config/scenes/aws_small_house_start_poses.yaml
 ground_truth_file: config/scenes/aws_small_house_ground_truth.yaml
 robot_model: turtlebot3_waffle_semantic
+spawn: {x: 0.0, y: 0.0, yaw: 0.0}
+launch:
+  use_sim_time: true
+  start_semantic: true
+  start_rviz: true
+  start_auto_mapping: false
+  headless: false
 camera_topics:
   rgb: /camera/image_raw
   camera_info: /camera/camera_info
