@@ -53,6 +53,7 @@ _LAUNCH_FIELDS = {
     "graph_database",
     "start_semantic",
     "start_rviz",
+    "start_operator_gui",
     "start_auto_mapping",
     "headless",
     "localization_mode",
@@ -63,6 +64,7 @@ _BOOLEAN_FIELDS = {
     "use_sim_time",
     "start_semantic",
     "start_rviz",
+    "start_operator_gui",
     "start_auto_mapping",
     "headless",
 }

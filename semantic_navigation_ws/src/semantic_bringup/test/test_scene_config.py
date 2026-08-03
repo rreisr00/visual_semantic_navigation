@@ -32,6 +32,7 @@ def test_bundled_name_loads_launch_and_parameter_defaults(tmp_path):
             "headless": True,
             "start_rviz": False,
             "start_semantic": True,
+            "start_operator_gui": True,
         },
         "parameter_files": {
             "retrieval": "nav_pkg/config/retrieval.yaml",
@@ -62,6 +63,7 @@ def test_bundled_name_loads_launch_and_parameter_defaults(tmp_path):
     assert values["spawn_yaw"] == "0.5"
     assert values["headless"] == "true"
     assert values["start_rviz"] == "false"
+    assert values["start_operator_gui"] == "true"
     assert values["graph_database"].endswith("/graphs/test.db")
 
 

@@ -1,0 +1,16 @@
+semantic_operator_gui:
+  ros__parameters:
+    use_sim_time: true
+    camera_topic: /camera/image_raw
+    cmd_vel_topic: /cmd_vel
+    stamped_cmd_vel: true
+    capture_action_name: /capture_waypoint
+    add_room_service: /add_room
+    clicked_point_topic: /clicked_point
+    room_marker_topic: /room_markers
+    scene_id: aws_small_house
+    rooms_file: ""
+    map_frame: map
+    base_frame: base_link
+    linear_speed: 0.25
+    angular_speed: 0.7

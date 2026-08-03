@@ -21,6 +21,7 @@ Launch arguments
 ----------------
   scene_config  (default: empty) bundled scene name or path to a scene YAML;
                 explicit CLI launch arguments override YAML values
+  start_operator_gui (default: false) start the semantic mapping console
   use_sim_time   (default: true)
   map            (default: aws_robomaker_small_house_world bundled map)
   world          (default: semantic_bringup/worlds/semantic_test.world)
@@ -178,6 +179,10 @@ def generate_launch_description() -> LaunchDescription:
     start_rviz_arg = DeclareLaunchArgument(
         "start_rviz", default_value="true",
         description="Start RViz2.",
+    )
+    start_operator_gui_arg = DeclareLaunchArgument(
+        "start_operator_gui", default_value="false",
+        description="Start the camera, teleoperation and semantic mapping GUI.",
     )
     start_auto_mapping_arg = DeclareLaunchArgument(
         "start_auto_mapping", default_value="false",
@@ -766,6 +771,17 @@ def generate_launch_description() -> LaunchDescription:
         output="screen",
         condition=IfCondition(LaunchConfiguration("start_auto_mapping")),
     )
+    operator_gui_node = Node(
+        package="semantic_evaluation",
+        executable="semantic_operator_gui",
+        name="semantic_operator_gui",
+        parameters=[{
+            "use_sim_time": use_sim_time,
+            "scene_id": scene_id,
+        }],
+        output="screen",
+        condition=IfCondition(LaunchConfiguration("start_operator_gui")),
+    )
 
     # ------------------------------------------------------------------ #
     # Launch description
@@ -789,6 +805,7 @@ def generate_launch_description() -> LaunchDescription:
         graph_database_arg,
         start_semantic_arg,
         start_rviz_arg,
+        start_operator_gui_arg,
         start_auto_mapping_arg,
         headless_arg,
         localization_mode_arg,
@@ -837,4 +854,5 @@ def generate_launch_description() -> LaunchDescription:
         orchestrator_node,
         graph_visualizer_node,
         topology_mapper_node,
+        operator_gui_node,
     ])
