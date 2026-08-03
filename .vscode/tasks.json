@@ -1,0 +1,113 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Run Simulation",
+            "detail": "colcon build completo + source + lanza semantic_bringup simulation.launch.py",
+            "type": "shell",
+            "command": "./run_simulation.sh",
+            "options": {
+                "cwd": "${workspaceFolder}/semantic_navigation_ws"
+            },
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Run Simulation (no build)",
+            "detail": "Salta colcon build: solo source install/setup.bash + launch",
+            "type": "shell",
+            "command": "./run_simulation.sh --no-build",
+            "options": {
+                "cwd": "${workspaceFolder}/semantic_navigation_ws"
+            },
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Run Simulation (custom launch args)",
+            "detail": "Lanza la simulación reenviando argumentos extra al launch file",
+            "type": "shell",
+            "command": "./run_simulation.sh --no-build -- ${input:launchArgs}",
+            "options": {
+                "cwd": "${workspaceFolder}/semantic_navigation_ws"
+            },
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "Build Knowledge Graph packages",
+            "detail": "Compila primero los paquetes knowledge_graph_* y luego el resto del workspace",
+            "type": "shell",
+            "command": "./build_kg_first.sh",
+            "options": {
+                "cwd": "${workspaceFolder}/semantic_navigation_ws"
+            },
+            "group": "build",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": []
+        },
+        {
+            "label": "System Health Check",
+            "detail": "Chequeo periódico de nodos/tópicos/servicios ROS2 (Nav2 + capa semántica)",
+            "type": "shell",
+            "command": "./check_system.sh",
+            "options": {
+                "cwd": "${workspaceFolder}/semantic_navigation_ws"
+            },
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": [],
+            "isBackground": true
+        },
+        {
+            "label": "System Health Check (single shot)",
+            "detail": "Chequeo único de nodos/tópicos/servicios ROS2, sin loop",
+            "type": "shell",
+            "command": "./check_system.sh 0",
+            "options": {
+                "cwd": "${workspaceFolder}/semantic_navigation_ws"
+            },
+            "group": "test",
+            "presentation": {
+                "reveal": "always",
+                "panel": "dedicated",
+                "clear": true
+            },
+            "problemMatcher": []
+        }
+    ],
+    "inputs": [
+        {
+            "id": "launchArgs",
+            "type": "promptString",
+            "description": "Argumentos para el launch (ej: use_sim_time:=false map:=/ruta/mapa.yaml)",
+            "default": ""
+        }
+    ]
+}
