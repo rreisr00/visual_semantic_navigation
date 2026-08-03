@@ -302,7 +302,9 @@ class EvaluationCollectorNode(Node):
                 )
             ),
             navigation_success=(
-                None if self._decision_only else bool(outcome.navigation_success)
+                None
+                if self._decision_only or case.is_negative
+                else bool(outcome.navigation_success)
             ),
             retrieval_latency_ms=float(outcome.retrieval_latency_ms),
             navigation_time_s=float(outcome.navigation_s),
