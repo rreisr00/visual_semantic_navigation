@@ -1,0 +1,38 @@
+<?xml version="1.0" ?>
+<!--
+Copyright 2020 Google LLC.
+
+This work is licensed under the Creative Commons Attribution 4.0
+International License. To view a copy of this license, visit
+http://creativecommons.org/licenses/by/4.0/ or send a letter
+to Creative Commons, PO Box 1866, Mountain View, CA 94042, USA.
+-->
+<sdf version="1.6">
+  <model name="potted_plant">
+    <static>true</static>
+    <link name="link_0">
+      <visual name="pot_visual">
+        <geometry>
+          <mesh>
+            <uri>meshes/model.obj</uri>
+            <scale>4.5 4.5 4.5</scale>
+          </mesh>
+        </geometry>
+      </visual>
+      <visual name="foliage_lower">
+        <pose>0 0 0.48 0 0 0</pose>
+        <geometry><sphere><radius>0.30</radius></sphere></geometry>
+        <material><ambient>0.05 0.35 0.08 1</ambient><diffuse>0.08 0.55 0.12 1</diffuse></material>
+      </visual>
+      <visual name="foliage_upper">
+        <pose>0 0 0.72 0 0 0</pose>
+        <geometry><sphere><radius>0.24</radius></sphere></geometry>
+        <material><ambient>0.04 0.30 0.07 1</ambient><diffuse>0.06 0.48 0.10 1</diffuse></material>
+      </visual>
+      <collision name="plant_collision">
+        <pose>0 0 0.43 0 0 0</pose>
+        <geometry><cylinder><radius>0.30</radius><length>0.86</length></cylinder></geometry>
+      </collision>
+    </link>
+  </model>
+</sdf>
