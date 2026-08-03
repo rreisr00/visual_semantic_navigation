@@ -1,6 +1,9 @@
 experiment:
   name: ros2_campaign_analysis
-  frozen_retrieval_config: experiments/offline/results/frozen_retrieval_config.yaml
+  # This is the exact configuration loaded by simulation.launch.py.  The
+  # notebook computes the same canonical hash as the ROS launch and rejects
+  # campaign runs produced with any other configuration.
+  frozen_retrieval_config: semantic_navigation_ws/src/semantic_navigation_ros/config/frozen_retrieval_config.yaml
   expected_config_hash: null
 
 paths:
@@ -24,4 +27,3 @@ graph_analysis:
   check_isolated_nodes: true
   check_embedding_dimensions: true
   check_invalid_edges: true
-

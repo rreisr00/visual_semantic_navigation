@@ -1,7 +1,7 @@
 scene_id: aws_small_house
 enabled: true
-graph_db: "~/.ros/semantic_maps/knowledge_graph.db"
-queries_file: experiments/simulation/config/queries/scene_01_queries.yaml
+graph_db: "~/.ros/semantic_maps/aws_small_house/graph.db"
+queries_file: semantic_navigation_ws/src/semantic_bringup/config/scenes/aws_small_house_queries.yaml
 metadata:
-  rooms_file: "~/.ros/semantic_maps/rooms_semantic_test.yaml"
-  images_dir: "~/semantic_dataset"
+  ground_truth_file: semantic_navigation_ws/src/semantic_bringup/config/scenes/aws_small_house_ground_truth.yaml
+  images_dir: "~/.ros/semantic_maps/aws_small_house/images"

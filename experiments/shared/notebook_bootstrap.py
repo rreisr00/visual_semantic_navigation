@@ -97,7 +97,7 @@ def bootstrap_simulation(config_path: str | None = None) -> dict[str, Any]:
         load_simulation_scenes,
         load_yaml,
     )
-    from semantic_evaluation.core.reproducibility import verify_frozen_config
+    from semantic_navigation_core.configuration import load_frozen_config
 
     path = Path(config_path) if config_path else (
         repo_root / "experiments/simulation/config/simulation_experiment_config.yaml"
@@ -108,7 +108,12 @@ def bootstrap_simulation(config_path: str | None = None) -> dict[str, Any]:
         repo_root, str(config["experiment"]["frozen_retrieval_config"])
     )
     expected = config["experiment"].get("expected_config_hash")
-    frozen_config, frozen_hash = verify_frozen_config(frozen_path, expected)
+    frozen_config, frozen_hash = load_frozen_config(frozen_path)
+    if expected and frozen_hash != expected:
+        raise ValueError(
+            f"frozen configuration hash {frozen_hash} does not match "
+            f"expected {expected}"
+        )
     return {
         "repo_root": repo_root,
         "config_path": path,
