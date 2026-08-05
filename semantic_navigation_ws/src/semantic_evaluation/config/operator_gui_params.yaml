@@ -2,9 +2,12 @@ semantic_operator_gui:
   ros__parameters:
     use_sim_time: true
     camera_topic: /camera/image_raw
-    cmd_vel_topic: /cmd_vel
+    # Nav2 velocity_smoother -> collision_monitor -> /cmd_vel -> Gazebo.
+    cmd_vel_topic: /cmd_vel_nav
     stamped_cmd_vel: true
     capture_action_name: /capture_waypoint
+    semantic_action_name: /navigate_to_semantic_goal
+    navigate_action_name: /navigate_to_pose
     add_room_service: /add_room
     clicked_point_topic: /clicked_point
     room_marker_topic: /room_markers
@@ -14,3 +17,11 @@ semantic_operator_gui:
     base_frame: base_link
     linear_speed: 0.25
     angular_speed: 0.7
+    # Whisper is lazy-loaded. CPU avoids competing with SigLIP/YOLO for VRAM.
+    voice_model_size: small
+    voice_device: cpu
+    voice_compute_type: int8
+    voice_language: es
+    voice_mic_device: ""
+    voice_sample_rate: 16000
+    voice_top_k: 5

@@ -6,8 +6,8 @@
   <description>
     UF-7 evaluation tooling for the semantic navigation stack: real-time metric
     collection + CSV export, graphical and keyboard teleoperation with waypoint
-    capture, room creation, and an RViz2 knowledge-graph visualizer. Business
-    logic lives in a pure-Python core (semantic_evaluation.core).
+    capture, room creation, voice navigation, and an RViz2 knowledge-graph
+    visualizer. Business logic lives in a pure-Python core.
   </description>
   <maintainer email="rreisr00@estudiantes.unileon.es">developer</maintainer>
   <license>Apache-2.0</license>
@@ -15,6 +15,8 @@
   <buildtool_depend>ament_python</buildtool_depend>
 
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>action_msgs</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
@@ -23,6 +25,7 @@
   <exec_depend>visualization_msgs</exec_depend>
   <exec_depend>builtin_interfaces</exec_depend>
   <exec_depend>semantic_interfaces</exec_depend>
+  <exec_depend>semantic_voice</exec_depend>
   <exec_depend>cv_bridge</exec_depend>
   <exec_depend>python_qt_binding</exec_depend>
   <exec_depend>python3-psutil</exec_depend>

@@ -778,7 +778,9 @@ def generate_launch_description() -> LaunchDescription:
         parameters=[{
             "use_sim_time": use_sim_time,
             "scene_id": scene_id,
+            "cmd_vel_topic": "/cmd_vel_nav",
         }],
+        additional_env=_extra_env,
         output="screen",
         condition=IfCondition(LaunchConfiguration("start_operator_gui")),
     )

@@ -21,7 +21,8 @@ setup(
     maintainer_email="rreisr00@estudiantes.unileon.es",
     description=(
         "UF-7 evaluation tooling (metric collection + CSV, teleop capture, "
-        "operator GUI and knowledge-graph RViz visualizer). Pure-Python core, "
+        "operator GUI with voice navigation and knowledge-graph RViz "
+        "visualizer). Pure-Python core, "
         "no ROS in core/."
     ),
     license="Apache-2.0",

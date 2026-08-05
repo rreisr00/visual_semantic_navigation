@@ -22,6 +22,8 @@ class TestMoveToPosition:
             ("please move to 4 5", 4.0, 5.0),
             ("Move to 2.5, 3.0.", 2.5, 3.0),  # Whisper capitals + period
             ("go to the position 7 8", 7.0, 8.0),
+            ("ve a la posición 1.5, -2", 1.5, -2.0),
+            ("navega al punto 0 3", 0.0, 3.0),
         ],
     )
     def test_variants(self, text, x, y):
@@ -44,6 +46,8 @@ class TestSaveWaypoint:
             ("save this place called bedroom", "bedroom"),
             ("save as kitchen", "kitchen"),  # noun omitted, "as" gates it
             ("Save waypoint Kitchen.", "kitchen"),  # Whisper artifacts
+            ("guarda este punto como cocina", "cocina"),
+            ("marca la ubicación llamada sala norte", "sala_norte"),
         ],
     )
     def test_variants(self, text, label):
@@ -70,6 +74,10 @@ class TestSemanticGoal:
             ("please robot go to the fridge", "fridge"),
             ("where is the television", "television"),
             ("navigate to the bathroom sink", "bathroom sink"),
+            ("ve al sofá del salón", "sofá del salón"),
+            ("por favor busca la taza roja", "taza roja"),
+            ("llévame a la mesa junto a la planta", "mesa junto a la planta"),
+            ("dónde está la impresora", "impresora"),
         ],
     )
     def test_variants(self, text, query):

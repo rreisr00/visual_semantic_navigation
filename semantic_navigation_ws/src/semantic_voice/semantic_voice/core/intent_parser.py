@@ -1,4 +1,4 @@
-"""Rules + regex intent parser for spoken English commands.
+"""Rules + regex intent parser for spoken English and Spanish commands.
 
 Pure Python (stdlib only) so it can be unit-tested without ROS or the ML venv.
 
@@ -50,28 +50,33 @@ _NUM = r"(-?\d+(?:\.\d+)?)"
 
 # "move to 2.5 3.0" / "go to position 1, -2.5" / "navigate to point 0 0"
 _MOVE_RE = re.compile(
-    rf"\b(?:move|go|navigate|drive)\s+to\s+"
-    rf"(?:the\s+)?(?:position|coordinates?|point)?\s*"
+    rf"\b(?:(?:move|go|navigate|drive)\s+to|"
+    rf"(?:ve|mueve|muévete|navega|conduce)\s+(?:al|a))\s+"
+    rf"(?:(?:the|la|el)\s+)?"
+    rf"(?:position|coordinates?|point|posición|coordenadas?|punto)?\s*"
     rf"{_NUM}\s*[, ]\s*{_NUM}"
 )
 
 # "save waypoint kitchen" / "capture this location as living room" /
 # "mark waypoint" (label optional -> kg_manager auto-names)
 _SAVE_RE = re.compile(
-    r"\b(?:save|capture|store|mark)\b"
-    r"(?:\s+(?:this|a|the|current|my))*"
+    r"\b(?:save|capture|store|mark|guarda|guardar|captura|marca)\b"
+    r"(?:\s+(?:this|a|the|current|my|este|esta|un|una|el|la|actual))*"
     r"\s+(?:"
-    r"(?:waypoint|location|place|position|spot)(?:\s+(?:as|called|named))?"
-    r"|(?:as|called|named)"
+    r"(?:waypoint|location|place|position|spot|punto|ubicación|lugar|posición)"
+    r"(?:\s+(?:as|called|named|como|llamado|llamada))?"
+    r"|(?:as|called|named|como|llamado|llamada)"
     r")\s*(.*)$"
 )
 
 # Leading fillers stripped before treating the rest as a semantic query.
 _FILLER_RE = re.compile(
-    r"^(?:please\s+|robot\s+|hey\s+|now\s+)*"
+    r"^(?:please\s+|robot\s+|hey\s+|now\s+|por\s+favor\s+|"
+    r"oye\s+|ahora\s+)*"
     r"(?:(?:go|navigate|drive)\s+to|take\s+me\s+to|bring\s+me\s+to|find|"
-    r"look\s+for|where\s+is)?"
-    r"\s*(?:the\s+)?"
+    r"look\s+for|where\s+is|(?:ve|navega|conduce)\s+(?:al|a)|"
+    r"llévame\s+(?:al|a)|busca|encuentra|dónde\s+está|donde\s+esta)?"
+    r"\s*(?:the|el|la|los|las)?\s*"
 )
 
 
