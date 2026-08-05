@@ -726,6 +726,14 @@ def generate_launch_description() -> LaunchDescription:
             "use_sim_time": use_sim_time,
             "scene_id": scene_id,
             "configuration_hash": frozen_hash,
+            # Capture rotation uses the final Gazebo command topic while the
+            # collision monitor is temporarily suspended below.  This avoids
+            # both its approach limiter and competing zero-velocity outputs.
+            "cmd_vel_topic": "/cmd_vel",
+            # The approach polygon can reject an in-place mapping rotation
+            # close to furniture.  kg_manager suspends it only while rotating
+            # and restores it before acquiring each observation.
+            "suspend_collision_monitor_during_rotation": True,
         }],
         output="screen",
         condition=IfCondition(start_semantic),

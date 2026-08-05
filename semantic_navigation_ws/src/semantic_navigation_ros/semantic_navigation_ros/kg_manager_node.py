@@ -39,6 +39,7 @@ from rclpy.node import Node
 from rclpy.qos import qos_profile_sensor_data
 
 from geometry_msgs.msg import PoseStamped, TwistStamped
+from nav2_msgs.srv import Toggle
 from sensor_msgs.msg import CameraInfo, Image
 
 import tf2_ros
@@ -92,10 +93,21 @@ class WaypointCaptureNode(Node):
         self.declare_parameter("scene_id", "aws_small_house")
         self.declare_parameter("configuration_hash", "")
         self.declare_parameter("cmd_vel_topic", "/cmd_vel")
+        self.declare_parameter("capture_rotation_frame", "odom")
         self.declare_parameter("capture_angular_speed_rad_s", 0.6)
-        self.declare_parameter("capture_angular_tolerance_rad", 0.05)
+        self.declare_parameter("capture_min_angular_speed_rad_s", 0.22)
+        # Gazebo contact and drivetrain deadbands can leave the simulated
+        # TurtleBot a few degrees short of a cardinal view.  The requested,
+        # measured and error angles are all persisted with the observation,
+        # so this practical acceptance tolerance remains fully traceable.
+        self.declare_parameter("capture_angular_tolerance_rad", 0.10)
         self.declare_parameter("capture_rotation_timeout_s", 20.0)
         self.declare_parameter("capture_stabilization_s", 0.75)
+        self.declare_parameter("suspend_collision_monitor_during_rotation", False)
+        self.declare_parameter(
+            "collision_monitor_toggle_service", "/collision_monitor/toggle"
+        )
+        self.declare_parameter("collision_monitor_toggle_timeout_s", 2.0)
         self.declare_parameter(
             "observations_dir", "~/.ros/semantic_maps/{scene_id}/images"
         )
@@ -166,6 +178,11 @@ class WaypointCaptureNode(Node):
         )
         self._store_client = self.create_client(
             StoreWaypoint, "store_waypoint", callback_group=self._client_cbg
+        )
+        self._collision_monitor_client = self.create_client(
+            Toggle,
+            self.get_parameter("collision_monitor_toggle_service").value,
+            callback_group=self._client_cbg,
         )
 
         # ── Action server ─────────────────────────────────────────────────── #
@@ -265,7 +282,8 @@ class WaypointCaptureNode(Node):
         result = CaptureWaypoint.Result()
         request = goal_handle.request
         relative_views = list(request.relative_view_yaws_deg)
-        targets = [float(request.requested_yaw)]
+        requested_targets = [float(request.requested_yaw)]
+        rotation_targets = list(requested_targets)
         if relative_views:
             current = self._lookup_current_pose(
                 self.get_parameter("base_frame").value
@@ -273,22 +291,65 @@ class WaypointCaptureNode(Node):
             if current is None:
                 return self._abort(goal_handle, result, "base transform unavailable")
             origin_yaw = _yaw_from_pose(current)
-            targets = [
+            requested_targets = [
                 _wrap_angle(origin_yaw + float(value) * pi / 180.0)
+                for value in relative_views
+            ]
+
+            rotation_frame = str(
+                self.get_parameter("capture_rotation_frame").value
+            )
+            rotation_pose = self._lookup_current_pose(
+                self.get_parameter("base_frame").value,
+                target_frame=rotation_frame,
+            )
+            if rotation_pose is None:
+                return self._abort(
+                    goal_handle,
+                    result,
+                    f"base transform unavailable in {rotation_frame}",
+                )
+            rotation_origin_yaw = _yaw_from_pose(rotation_pose)
+            rotation_targets = [
+                _wrap_angle(rotation_origin_yaw + float(value) * pi / 180.0)
                 for value in relative_views
             ]
 
         waypoint_id = request.label.strip()
         merged = False
-        total = len(targets)
-        for index, requested_yaw in enumerate(targets, start=1):
+        total = len(requested_targets)
+        for index, (requested_yaw, rotation_yaw) in enumerate(
+            zip(requested_targets, rotation_targets), start=1
+        ):
             if goal_handle.is_cancel_requested:
                 self._publish_stop()
                 return self._cancelled(goal_handle, result, "cancel requested")
             if relative_views and request.rotate_robot:
-                ok, reason = self._rotate_to_yaw(
-                    goal_handle, requested_yaw, index, total
-                )
+                monitor_suspended = False
+                restore_error = ""
+                if bool(
+                    self.get_parameter(
+                        "suspend_collision_monitor_during_rotation"
+                    ).value
+                ):
+                    monitor_suspended, reason = (
+                        self._set_collision_monitor_enabled(False)
+                    )
+                    if not monitor_suspended:
+                        return self._abort(goal_handle, result, reason)
+                try:
+                    ok, reason = self._rotate_to_yaw(
+                        goal_handle, rotation_yaw, index, total
+                    )
+                finally:
+                    if monitor_suspended:
+                        restored, restore_error = (
+                            self._set_collision_monitor_enabled(True)
+                        )
+                        if not restored:
+                            self.get_logger().error(restore_error)
+                if restore_error:
+                    return self._abort(goal_handle, result, restore_error)
                 if not ok:
                     if reason == "cancelled":
                         return self._cancelled(goal_handle, result, reason)
@@ -449,10 +510,12 @@ class WaypointCaptureNode(Node):
             return None
         return _transform_to_pose_stamped(transform)
 
-    def _lookup_current_pose(self, source_frame: str) -> Optional[PoseStamped]:
+    def _lookup_current_pose(
+        self, source_frame: str, target_frame: str | None = None
+    ) -> Optional[PoseStamped]:
         try:
             transform = self._tf_buffer.lookup_transform(
-                self.get_parameter("map_frame").value,
+                target_frame or self.get_parameter("map_frame").value,
                 source_frame,
                 rclpy.time.Time(),
                 timeout=Duration(
@@ -484,12 +547,20 @@ class WaypointCaptureNode(Node):
         maximum_speed = float(
             self.get_parameter("capture_angular_speed_rad_s").value
         )
+        minimum_speed = float(
+            self.get_parameter("capture_min_angular_speed_rad_s").value
+        )
+        rotation_frame = str(
+            self.get_parameter("capture_rotation_frame").value
+        )
+        measured_yaw = None
         try:
             while time.monotonic() < deadline:
                 if goal_handle.is_cancel_requested:
                     return False, "cancelled"
                 pose = self._lookup_current_pose(
-                    self.get_parameter("base_frame").value
+                    self.get_parameter("base_frame").value,
+                    target_frame=rotation_frame,
                 )
                 if pose is None:
                     time.sleep(0.05)
@@ -502,16 +573,42 @@ class WaypointCaptureNode(Node):
                 )
                 if abs(error) <= tolerance:
                     return True, ""
-                speed = min(maximum_speed, max(0.12, abs(error) * 1.5))
+                speed = min(maximum_speed, max(minimum_speed, abs(error) * 1.5))
                 command = TwistStamped()
                 command.header.stamp = self.get_clock().now().to_msg()
                 command.header.frame_id = self.get_parameter("base_frame").value
                 command.twist.angular.z = copysign(speed, error)
                 self._cmd_vel_pub.publish(command)
                 time.sleep(0.05)
-            return False, "rotation timeout"
+            if measured_yaw is None:
+                return False, "rotation timeout (robot pose unavailable)"
+            error = _wrap_angle(requested_yaw - measured_yaw)
+            return False, (
+                "rotation timeout "
+                f"(target={requested_yaw * 180.0 / pi:.1f} deg, "
+                f"measured={measured_yaw * 180.0 / pi:.1f} deg, "
+                f"error={error * 180.0 / pi:.1f} deg)"
+            )
         finally:
             self._publish_stop()
+
+    def _set_collision_monitor_enabled(self, enabled: bool) -> tuple[bool, str]:
+        request = Toggle.Request()
+        request.enable = enabled
+        response = self._call_service(
+            self._collision_monitor_client,
+            request,
+            timeout=float(
+                self.get_parameter("collision_monitor_toggle_timeout_s").value
+            ),
+        )
+        operation = "enable" if enabled else "suspend"
+        if response is None:
+            return False, f"failed to {operation} collision monitor"
+        if not response.success:
+            detail = response.message or "service rejected the request"
+            return False, f"failed to {operation} collision monitor: {detail}"
+        return True, ""
 
     def _publish_stop(self) -> None:
         command = TwistStamped()
