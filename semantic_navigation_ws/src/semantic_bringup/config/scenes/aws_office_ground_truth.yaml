@@ -1,0 +1,7 @@
+scene_id: aws_office
+annotation_version: 1
+# Populate these annotations after adding the final models and capturing nodes.
+rooms: []
+objects: []
+relations: []
+negative_queries: []

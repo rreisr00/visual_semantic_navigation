@@ -17,6 +17,7 @@ import yaml
 
 _TOP_LEVEL_FIELDS = {
     "scene_id": "scene_id",
+    "world_package": "world_package",
     "world_file": "world",
     "map_file": "map",
     "graph_database": "graph_database",
@@ -29,6 +30,18 @@ _SPAWN_FIELDS = {
     "x": "spawn_x",
     "y": "spawn_y",
     "yaw": "spawn_yaw",
+}
+
+_ROBOT_FIELDS = {
+    "package": "robot_package",
+    "model": "robot_model",
+    "entity_name": "robot_entity_name",
+    "camera_height_m": "camera_mast_z",
+    "camera_pitch_rad": "camera_pitch_rad",
+    "gz_rgb_topic": "robot_gz_rgb_topic",
+    "gz_depth_topic": "robot_gz_depth_topic",
+    "gz_camera_info_topic": "robot_gz_camera_info_topic",
+    "bridge_config": "robot_bridge_config",
 }
 
 _PARAMETER_FILE_FIELDS = {
@@ -49,6 +62,15 @@ _LAUNCH_FIELDS = {
     "spawn_y",
     "spawn_yaw",
     "world_name",
+    "world_package",
+    "robot_package",
+    "robot_model",
+    "robot_entity_name",
+    "camera_pitch_rad",
+    "robot_gz_rgb_topic",
+    "robot_gz_depth_topic",
+    "robot_gz_camera_info_topic",
+    "robot_bridge_config",
     "scene_id",
     "graph_database",
     "start_semantic",
@@ -72,6 +94,7 @@ _BOOLEAN_FIELDS = {
 _RESOURCE_FIELDS = {
     "world",
     "map",
+    "robot_bridge_config",
     *_PARAMETER_FILE_FIELDS.values(),
 }
 
@@ -128,6 +151,18 @@ def load_scene_launch_config(
     for yaml_name, launch_name in _SPAWN_FIELDS.items():
         if yaml_name in spawn:
             values[launch_name] = spawn[yaml_name]
+
+    robot = loaded.get("robot", {})
+    if robot is None:
+        robot = {}
+    if not isinstance(robot, dict):
+        raise ValueError("scene configuration field 'robot' must be a mapping")
+    unknown_robot = sorted(set(robot) - set(_ROBOT_FIELDS))
+    if unknown_robot:
+        raise ValueError(f"unknown robot fields: {', '.join(unknown_robot)}")
+    for yaml_name, launch_name in _ROBOT_FIELDS.items():
+        if yaml_name in robot:
+            values[launch_name] = robot[yaml_name]
 
     launch = loaded.get("launch", {})
     if launch is None:

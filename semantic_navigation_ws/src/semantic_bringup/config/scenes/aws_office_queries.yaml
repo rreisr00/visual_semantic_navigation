@@ -1,0 +1,4 @@
+suite_id: aws_office_queries_v1
+scene_id: aws_office
+# Add cases after fixing the final geometry, semantic nodes and start poses.
+cases: []

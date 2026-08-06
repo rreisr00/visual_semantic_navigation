@@ -1,12 +1,13 @@
-scene_id: aws_small_house
-world_package: aws_robomaker_small_house_world
-world_file: worlds/semantic_test.world
+scene_id: aws_office
+world_package: aws_robomaker_office_world
+world_name: default
+world_file: package://aws_robomaker_office_world/worlds/service.world
 localization_mode: localization
-map_file: aws_robomaker_small_house_world/maps/turtlebot3_waffle_pi/map.yaml
-graph_database: ~/.ros/semantic_maps/aws_small_house/graph.db
-queries_file: config/scenes/aws_small_house_queries.yaml
-start_poses_file: config/scenes/aws_small_house_start_poses.yaml
-ground_truth_file: config/scenes/aws_small_house_ground_truth.yaml
+map_file: package://aws_robomaker_office_world/maps/map.yaml
+graph_database: ~/.ros/semantic_maps/aws_office/graph.db
+queries_file: config/scenes/aws_office_queries.yaml
+start_poses_file: config/scenes/aws_office_start_poses.yaml
+ground_truth_file: config/scenes/aws_office_ground_truth.yaml
 robot:
   package: semantic_robot_description
   model: semantic_tall_rgbd
@@ -17,7 +18,7 @@ robot:
   gz_depth_topic: /camera/depth_image
   gz_camera_info_topic: /camera/camera_info
   bridge_config: package://semantic_robot_description/config/base_bridge.yaml
-spawn: {x: 0.0, y: 0.0, yaw: 0.0}
+spawn: {x: 0.0, y: 20.0, yaw: -1.5}
 launch:
   use_sim_time: true
   start_semantic: true

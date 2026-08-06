@@ -2,14 +2,15 @@
 set -eo pipefail
 
 workspace_setup="${1:-install/setup.bash}"
-scene_id="${SCENE_ID:-aws_small_house}"
+scene_config="${SCENE_CONFIG:-}"
+scene_id="${SCENE_ID:-}"
 startup_timeout="${STARTUP_TIMEOUT_S:-90}"
 smoke_root="${ROS_LOG_DIR:-/tmp/visual-semantic-navigation-smoke}"
 world_file="${WORLD_FILE:-}"
 map_file="${MAP_FILE:-}"
 localization_mode="${LOCALIZATION_MODE:-localization}"
-spawn_x="${SPAWN_X:-0.0}"
-spawn_y="${SPAWN_Y:-0.0}"
+spawn_x="${SPAWN_X:-}"
+spawn_y="${SPAWN_Y:-}"
 smoke_run_id="${SMOKE_RUN_ID:-$$}"
 
 # Keep smoke runs isolated from interactive simulations and from orphaned ROS
@@ -33,14 +34,19 @@ mkdir -p "${ROS_LOG_DIR}"
 echo "Smoke isolation: ROS_DOMAIN_ID=${ROS_DOMAIN_ID}, GZ_PARTITION=${GZ_PARTITION}"
 
 launch_args=(
-  scene_id:="${scene_id}"
   headless:=true
   start_rviz:=false
   start_semantic:=false
   localization_mode:="${localization_mode}"
-  spawn_x:="${spawn_x}"
-  spawn_y:="${spawn_y}"
 )
+if [[ -n "${scene_config}" ]]; then
+  launch_args+=(scene_config:="${scene_config}")
+  [[ -n "${scene_id}" ]] && launch_args+=(scene_id:="${scene_id}")
+else
+  launch_args+=(scene_id:="${scene_id:-aws_small_house}")
+fi
+[[ -n "${spawn_x}" ]] && launch_args+=(spawn_x:="${spawn_x}")
+[[ -n "${spawn_y}" ]] && launch_args+=(spawn_y:="${spawn_y}")
 [[ -n "${world_file}" ]] && launch_args+=(world:="${world_file}")
 [[ -n "${map_file}" ]] && launch_args+=(map:="${map_file}")
 ros2 launch semantic_bringup simulation.launch.py "${launch_args[@]}" &
@@ -137,4 +143,4 @@ tf_output="${smoke_root}/tf_map_base_link.txt"
 timeout 10 ros2 run tf2_ros tf2_echo map base_link >"${tf_output}" 2>&1 || true
 file_contains "${tf_output}" "Translation:"
 
-echo "Smoke test passed for ${scene_id}"
+echo "Smoke test passed for ${scene_config:-${scene_id:-aws_small_house}}"
