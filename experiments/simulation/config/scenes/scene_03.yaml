@@ -1,5 +1,5 @@
 scene_id: semantic_office_lab
-enabled: true
+enabled: false
 graph_db: "~/.ros/semantic_maps/semantic_office_lab/graph.db"
 queries_file: semantic_navigation_ws/src/semantic_bringup/config/scenes/semantic_office_lab_queries.yaml
 metadata:
