@@ -17,6 +17,7 @@ install(DIRECTORY
 
 install(PROGRAMS
   scripts/smoke_test.sh
+  scripts/wait_for_localization.py
   DESTINATION lib/${PROJECT_NAME}
 )
 

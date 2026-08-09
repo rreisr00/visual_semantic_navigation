@@ -220,6 +220,33 @@ def generate_launch_description() -> LaunchDescription:
         "graph_database", default_value="~/.ros/semantic_maps/{scene_id}/graph.db",
         description="SQLite graph path; {scene_id} is expanded by the bridge.",
     )
+    queries_file_arg = DeclareLaunchArgument(
+        "queries_file",
+        default_value=os.path.join(
+            _bringup_share, "config", "scenes", "aws_small_house_queries.yaml"
+        ),
+        description="Scene query suite edited by the operator GUI.",
+    )
+    ground_truth_file_arg = DeclareLaunchArgument(
+        "ground_truth_file",
+        default_value=os.path.join(
+            _bringup_share,
+            "config",
+            "scenes",
+            "aws_small_house_ground_truth.yaml",
+        ),
+        description="Scene ground-truth annotations edited by the operator GUI.",
+    )
+    start_poses_file_arg = DeclareLaunchArgument(
+        "start_poses_file",
+        default_value=os.path.join(
+            _bringup_share,
+            "config",
+            "scenes",
+            "aws_small_house_start_poses.yaml",
+        ),
+        description="Known poses restored before navigation campaign cases.",
+    )
     start_semantic_arg = DeclareLaunchArgument(
         "start_semantic", default_value="true",
         description="Start ML, graph, capture and semantic navigation nodes.",
@@ -303,6 +330,9 @@ def generate_launch_description() -> LaunchDescription:
     world_file   = LaunchConfiguration("world")
     scene_id     = LaunchConfiguration("scene_id")
     graph_database = LaunchConfiguration("graph_database")
+    queries_file = LaunchConfiguration("queries_file")
+    ground_truth_file = LaunchConfiguration("ground_truth_file")
+    start_poses_file = LaunchConfiguration("start_poses_file")
     start_semantic = LaunchConfiguration("start_semantic")
     headless = LaunchConfiguration("headless")
     localization_mode = LaunchConfiguration("localization_mode")
@@ -524,8 +554,8 @@ def generate_launch_description() -> LaunchDescription:
                     # then load the semantic ML stack after Nav2 has settled.
                     on_exit=[
                         reset_robot_pose,
-                        nav2_after_spawn,
-                        semantic_after_spawn,
+                        localization_ready_handler,
+                        localization_after_spawn,
                     ],
                 )
             ),
@@ -928,37 +958,55 @@ def generate_launch_description() -> LaunchDescription:
             "use_sim_time": use_sim_time,
             "scene_id": scene_id,
             "cmd_vel_topic": "/cmd_vel_nav",
+            "map_file": map_yaml,
+            "graph_database": graph_database,
+            "queries_file": queries_file,
+            "ground_truth_file": ground_truth_file,
+            "start_poses_file": start_poses_file,
+            "robot_entity_name": LaunchConfiguration("robot_entity_name"),
+            "world_name": LaunchConfiguration("world_name"),
+            "frozen_config_hash": frozen_hash,
+            "frozen_config_path": frozen_config_path,
+            "retrieval_method": frozen_config["retrieval_method"],
         }],
         additional_env=_extra_env,
         output="screen",
         condition=IfCondition(LaunchConfiguration("start_operator_gui")),
     )
 
-    # Lifecycle service calls are sensitive to the CPU / GPU spike produced
-    # while Gazebo loads a world and creates the RGB-D sensor. Event-chain both
-    # stacks to the successful robot spawn instead of racing that initial load.
-    nav2_after_spawn = TimerAction(
+    # Lifecycle service calls are sensitive to process-discovery and CPU spikes.
+    # Bring localization up on its own first: AMCL must become active and publish
+    # map -> odom before global costmaps start checking that transform. Starting
+    # every Nav2 server in the same batch can make /amcl/change_state time out,
+    # leaving the manager stuck in "Configuring amcl" indefinitely.
+    localization_gate = Node(
+        package="semantic_bringup",
+        executable="wait_for_localization.py",
+        name="localization_gate",
+        output="screen",
+        parameters=[{
+            "use_sim_time": use_sim_time,
+            "target_frame": "map",
+            "base_frame": "base_link",
+            "scan_topic": "/scan",
+            "timeout_s": 90.0,
+            "required_valid_scans": 3,
+        }],
+    )
+    localization_after_spawn = TimerAction(
         period=2.0,
         actions=[
             map_server,
             amcl,
             lifecycle_manager_localization,
             slam,
-            controller_server,
-            smoother_server,
-            planner_server,
-            route_server,
-            behavior_server,
-            bt_navigator,
-            waypoint_follower,
-            velocity_smoother,
-            collision_monitor,
-            docking_server,
-            lifecycle_manager_navigation,
+            localization_gate,
         ],
     )
-    semantic_after_spawn = TimerAction(
-        period=10.0,
+    semantic_after_localization = TimerAction(
+        # Avoid loading vision models while the Nav2 lifecycle manager is
+        # configuring and activating its servers.
+        period=8.0,
         actions=[
             visual_encoder_node,
             kg_bridge_node,
@@ -968,6 +1016,39 @@ def generate_launch_description() -> LaunchDescription:
             graph_visualizer_node,
             topology_mapper_node,
         ],
+    )
+    navigation_nodes = [
+        controller_server,
+        smoother_server,
+        planner_server,
+        route_server,
+        behavior_server,
+        bt_navigator,
+        waypoint_follower,
+        velocity_smoother,
+        collision_monitor,
+        docking_server,
+        lifecycle_manager_navigation,
+    ]
+
+    def _on_localization_ready(event, _context):
+        logger = get_logger("semantic_bringup.localization_gate")
+        if event.returncode != 0:
+            logger.error(
+                "Localization gate failed; navigation will not be started."
+            )
+            return []
+        logger.info(
+            "Timestamped scans have a complete map-to-base transform; "
+            "starting navigation."
+        )
+        return [*navigation_nodes, semantic_after_localization]
+
+    localization_ready_handler = RegisterEventHandler(
+        OnProcessExit(
+            target_action=localization_gate,
+            on_exit=_on_localization_ready,
+        )
     )
 
     # ------------------------------------------------------------------ #
@@ -999,6 +1080,9 @@ def generate_launch_description() -> LaunchDescription:
         world_name_arg,
         scene_id_arg,
         graph_database_arg,
+        queries_file_arg,
+        ground_truth_file_arg,
+        start_poses_file_arg,
         start_semantic_arg,
         start_rviz_arg,
         start_operator_gui_arg,

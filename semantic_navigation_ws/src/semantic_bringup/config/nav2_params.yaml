@@ -36,7 +36,9 @@ amcl:
     save_pose_rate: 0.5
     sigma_hit: 0.2
     tf_broadcast: true
-    transform_tolerance: 1.0
+    # Future-date map -> odom only enough to absorb normal scheduling jitter.
+    # A full second leaves newly started costmaps with only future TF data.
+    transform_tolerance: 0.1
     update_min_a: 0.2
     update_min_d: 0.25
     z_hit: 0.5

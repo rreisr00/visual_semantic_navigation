@@ -20,6 +20,8 @@ def test_bundled_name_loads_launch_and_parameter_defaults(tmp_path):
     bringup = tmp_path / "semantic_bringup"
     world = _write(bringup / "worlds" / "test.world")
     map_file = _write(tmp_path / "map_pkg" / "maps" / "test.yaml")
+    queries = _write(bringup / "config" / "queries.yaml")
+    ground_truth = _write(bringup / "config" / "ground_truth.yaml")
     retrieval = _write(tmp_path / "nav_pkg" / "config" / "retrieval.yaml")
     bridge = _write(tmp_path / "robot_pkg" / "config" / "bridge.yaml")
     config = {
@@ -28,6 +30,8 @@ def test_bundled_name_loads_launch_and_parameter_defaults(tmp_path):
         "world_file": "worlds/test.world",
         "map_file": "package://map_pkg/maps/test.yaml",
         "graph_database": "~/graphs/test.db",
+        "queries_file": "config/queries.yaml",
+        "ground_truth_file": "config/ground_truth.yaml",
         "localization_mode": "localization",
         "spawn": {"x": -1.0, "y": 2.0, "yaw": 0.5},
         "robot": {
@@ -72,6 +76,8 @@ def test_bundled_name_loads_launch_and_parameter_defaults(tmp_path):
     assert values["world_package"] == "map_pkg"
     assert values["world"] == str(world.resolve())
     assert values["map"] == str(map_file.resolve())
+    assert values["queries_file"] == str(queries.resolve())
+    assert values["ground_truth_file"] == str(ground_truth.resolve())
     assert values["retrieval_params_file"] == str(retrieval.resolve())
     assert values["spawn_x"] == "-1.0"
     assert values["spawn_y"] == "2.0"
