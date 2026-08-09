@@ -13,6 +13,17 @@ semantic_operator_gui:
     room_marker_topic: /room_markers
     scene_id: aws_small_house
     rooms_file: ""
+    map_file: ""
+    graph_database: ""
+    queries_file: ""
+    ground_truth_file: ""
+    start_poses_file: ""
+    campaign_output_dir: "~/visual_semantic_navigation/experiments/simulation/campaigns"
+    robot_entity_name: semantic_robot
+    world_name: default
+    frozen_config_hash: ""
+    frozen_config_path: ""
+    retrieval_method: hybrid_semantic_retrieval
     map_frame: map
     base_frame: base_link
     linear_speed: 0.25

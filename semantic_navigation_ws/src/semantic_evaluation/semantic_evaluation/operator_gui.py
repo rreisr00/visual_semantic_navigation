@@ -13,11 +13,12 @@ from typing import Any
 
 from action_msgs.msg import GoalStatus
 from cv_bridge import CvBridge
-from geometry_msgs.msg import Point, PointStamped, PoseStamped, Twist, TwistStamped
+from geometry_msgs.msg import Point, Point32, PointStamped, PoseStamped, Twist, TwistStamped
 from nav2_msgs.action import NavigateToPose
 from python_qt_binding.QtCore import QEvent, QObject, Qt, QTimer
 from python_qt_binding.QtGui import QImage, QPixmap
 from python_qt_binding.QtWidgets import (
+    QAbstractSpinBox,
     QApplication,
     QCheckBox,
     QComboBox,
@@ -35,6 +36,7 @@ from python_qt_binding.QtWidgets import (
     QPushButton,
     QScrollArea,
     QSplitter,
+    QTabWidget,
     QTextEdit,
     QVBoxLayout,
     QWidget,
@@ -53,6 +55,10 @@ from semantic_evaluation.core.operator_gui_logic import (
     motion_from_directions,
     normalized_room_bounds,
     parse_view_angles,
+)
+from semantic_evaluation.campaign_designer_widget import CampaignDesignerWidget
+from semantic_evaluation.retrieval_evaluation_widget import (
+    RetrievalEvaluationWidget,
 )
 from semantic_interfaces.action import CaptureWaypoint, NavigateToSemanticGoal
 from semantic_interfaces.srv import AddRoom
@@ -78,6 +84,77 @@ for _qt_env_name in ('QT_QPA_PLATFORM_PLUGIN_PATH', 'QT_QPA_FONTDIR'):
         os.environ.pop(_qt_env_name, None)
 
 
+_OPERATOR_STYLE = """
+QMainWindow, QWidget { background-color: #101722; color: #e6edf3; }
+QTabWidget::pane { border: 1px solid #31445a; background: #111a26; }
+QTabBar::tab {
+    background: #1b2938; color: #b8c7d9; border: 1px solid #31445a;
+    padding: 9px 16px; margin-right: 2px;
+}
+QTabBar::tab:selected {
+    background: #176b87; color: white; border-bottom: 3px solid #5ee1ff;
+}
+QTabBar::tab:hover { background: #24506b; }
+QGroupBox {
+    background: #172231; border: 1px solid #36516a; border-radius: 7px;
+    margin-top: 13px; padding: 12px 8px 8px 8px; font-weight: 600;
+}
+QGroupBox::title {
+    subcontrol-origin: margin; left: 10px; padding: 0 6px; color: #6dd5ed;
+}
+QLineEdit, QTextEdit, QComboBox, QSpinBox, QDoubleSpinBox, QListWidget,
+QTableWidget, QGraphicsView {
+    background: #0d141e; color: #e6edf3; border: 1px solid #344b61;
+    border-radius: 4px; selection-background-color: #197a9e;
+    selection-color: white;
+}
+QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus,
+QDoubleSpinBox:focus, QListWidget:focus, QTableWidget:focus {
+    border: 1px solid #54c8e8;
+}
+QHeaderView::section {
+    background: #21354a; color: #dcebf5; border: 0;
+    border-right: 1px solid #3a5268; padding: 6px; font-weight: 600;
+}
+QTableWidget { alternate-background-color: #152131; gridline-color: #293d50; }
+QPushButton {
+    background: #26445c; color: #f3f8fb; border: 1px solid #3b6582;
+    border-radius: 5px; padding: 6px 10px; min-height: 20px;
+}
+QPushButton:hover { background: #32617f; border-color: #62c4e2; }
+QPushButton:pressed { background: #16364a; }
+QPushButton:disabled {
+    background: #252d36; color: #697784; border-color: #343d46;
+}
+QPushButton#accentButton { background: #087f5b; border-color: #20c997; }
+QPushButton#accentButton:hover { background: #099268; }
+QPushButton#dangerButton { background: #9d3544; border-color: #e16473; }
+QPushButton#dangerButton:hover { background: #b53f50; }
+QPushButton#voicePttButton {
+    background: #6441a5; border: 2px solid #9b7bd1;
+    font-weight: 700; min-height: 34px;
+}
+QPushButton#voicePttButton:pressed {
+    background: #b23a48; border-color: #ff7b89;
+}
+QProgressBar {
+    background: #0d141e; border: 1px solid #344b61;
+    border-radius: 4px; text-align: center;
+}
+QProgressBar::chunk { background: #168aad; border-radius: 3px; }
+QSplitter::handle { background: #2b5871; }
+QSplitter::handle:hover { background: #50b9d7; }
+QLabel#sectionHint {
+    background: #152536; border-left: 4px solid #2fb7d4;
+    padding: 8px; color: #cfe8f2;
+}
+QLabel#shortcutBadge {
+    background: #2d2147; border: 1px solid #7957b3; border-radius: 5px;
+    padding: 6px; color: #e6d9ff; font-weight: 600;
+}
+"""
+
+
 class SemanticOperatorNode(Node):
     """ROS-facing backend used by the Qt operator window."""
 
@@ -96,6 +173,19 @@ class SemanticOperatorNode(Node):
         self.declare_parameter('room_marker_topic', '/room_markers')
         self.declare_parameter('scene_id', 'aws_small_house')
         self.declare_parameter('rooms_file', '')
+        self.declare_parameter('map_file', '')
+        self.declare_parameter('graph_database', '')
+        self.declare_parameter('queries_file', '')
+        self.declare_parameter('ground_truth_file', '')
+        self.declare_parameter('start_poses_file', '')
+        self.declare_parameter('campaign_output_dir', '')
+        self.declare_parameter('robot_entity_name', 'semantic_robot')
+        self.declare_parameter('world_name', 'default')
+        self.declare_parameter('frozen_config_hash', '')
+        self.declare_parameter('frozen_config_path', '')
+        self.declare_parameter(
+            'retrieval_method', 'hybrid_semantic_retrieval'
+        )
         self.declare_parameter('map_frame', 'map')
         self.declare_parameter('base_frame', 'base_link')
         self.declare_parameter('linear_speed', 0.25)
@@ -128,6 +218,41 @@ class SemanticOperatorNode(Node):
         )
         self._map_frame = str(self.get_parameter('map_frame').value)
         self._base_frame = str(self.get_parameter('base_frame').value)
+        self.map_file = os.path.expanduser(
+            str(self.get_parameter('map_file').value).strip()
+        )
+        graph_database = str(
+            self.get_parameter('graph_database').value
+        ).strip()
+        self.graph_database = os.path.expanduser(
+            graph_database
+            or f'~/.ros/semantic_maps/{self.scene_id}/graph.db'
+        )
+        self.queries_file = os.path.expanduser(
+            str(self.get_parameter('queries_file').value).strip()
+        )
+        self.ground_truth_file = os.path.expanduser(
+            str(self.get_parameter('ground_truth_file').value).strip()
+        )
+        self.start_poses_file = os.path.expanduser(
+            str(self.get_parameter('start_poses_file').value).strip()
+        )
+        self.campaign_output_dir = os.path.expanduser(
+            str(self.get_parameter('campaign_output_dir').value).strip()
+        )
+        self.robot_entity_name = str(
+            self.get_parameter('robot_entity_name').value
+        )
+        self.world_name = str(self.get_parameter('world_name').value)
+        self.frozen_config_hash = str(
+            self.get_parameter('frozen_config_hash').value
+        )
+        self.frozen_config_path = os.path.expanduser(
+            str(self.get_parameter('frozen_config_path').value).strip()
+        )
+        self.retrieval_method = str(
+            self.get_parameter('retrieval_method').value
+        )
         rooms_file = str(self.get_parameter('rooms_file').value).strip()
         self.rooms_file = os.path.expanduser(
             rooms_file
@@ -458,10 +583,17 @@ class SemanticOperatorNode(Node):
         query: str,
         language: str,
         decision_only: bool = False,
+        *,
+        event_kind: str = 'semantic',
+        top_k: int | None = None,
     ) -> bool:
         text = query.strip()
         if not text:
-            self.push_event('error', message='La consulta semántica está vacía.')
+            self.push_event(
+                'error',
+                kind=event_kind,
+                message='La consulta semántica está vacía.',
+            )
             return False
         goal = NavigateToSemanticGoal.Goal()
         goal.query_text = text
@@ -470,12 +602,15 @@ class SemanticOperatorNode(Node):
         goal.language = language.strip() or 'es'
         goal.scene_id = self.scene_id
         goal.current_node_id = ''
-        goal.top_k = int(self.get_parameter('voice_top_k').value)
+        goal.top_k = (
+            int(top_k) if top_k is not None
+            else int(self.get_parameter('voice_top_k').value)
+        )
         goal.navigate = not decision_only
         return self._send_navigation_goal(
             self._semantic_client,
             goal,
-            'semantic',
+            event_kind,
             f'Consulta semántica enviada: «{text}».',
         )
 
@@ -499,16 +634,20 @@ class SemanticOperatorNode(Node):
         if self.capture_active:
             self.push_event(
                 'error',
+                kind=kind,
                 message='Espera a que termine la captura antes de navegar.',
             )
             return False
         with self._navigation_lock:
             if self._navigation_active:
-                self.push_event('error', message='Ya hay una navegación en curso.')
+                self.push_event(
+                    'error', kind=kind, message='Ya hay una navegación en curso.'
+                )
                 return False
             if not client.server_is_ready():
                 self.push_event(
                     'error',
+                    kind=kind,
                     message='El servidor de navegación solicitado no está disponible.',
                 )
                 return False
@@ -520,13 +659,19 @@ class SemanticOperatorNode(Node):
             future = client.send_goal_async(
                 goal,
                 feedback_callback=(
-                    self._on_semantic_navigation_feedback
-                    if kind == 'semantic' else None
+                    (
+                        lambda feedback, navigation_kind=kind:
+                        self._on_semantic_navigation_feedback(
+                            feedback, navigation_kind
+                        )
+                    ) if kind in ('semantic', 'evaluation') else None
                 ),
             )
         except Exception as exc:  # noqa: BLE001
             self._finish_navigation()
-            self.push_event('error', message=f'Error enviando navegación: {exc}')
+            self.push_event(
+                'error', kind=kind, message=f'Error enviando navegación: {exc}'
+            )
             return False
         future.add_done_callback(
             lambda done, navigation_kind=kind: self._on_navigation_goal(
@@ -541,11 +686,17 @@ class SemanticOperatorNode(Node):
             handle = future.result()
         except Exception as exc:  # noqa: BLE001
             self._finish_navigation()
-            self.push_event('error', message=f'Navegación rechazada: {exc}')
+            self.push_event(
+                'error', kind=kind, message=f'Navegación rechazada: {exc}'
+            )
             return
         if not handle.accepted:
             self._finish_navigation()
-            self.push_event('error', message='El objetivo de navegación fue rechazado.')
+            self.push_event(
+                'error',
+                kind=kind,
+                message='El objetivo de navegación fue rechazado.',
+            )
             return
         with self._navigation_lock:
             self._navigation_goal_handle = handle
@@ -556,10 +707,13 @@ class SemanticOperatorNode(Node):
             )
         )
 
-    def _on_semantic_navigation_feedback(self, feedback_message) -> None:
+    def _on_semantic_navigation_feedback(
+        self, feedback_message, kind: str
+    ) -> None:
         feedback = feedback_message.feedback
         self.push_event(
             'navigation_feedback',
+            kind=kind,
             stage=feedback.stage,
             distance=float(feedback.distance_remaining),
         )
@@ -571,23 +725,42 @@ class SemanticOperatorNode(Node):
             status = int(response.status)
         except Exception as exc:  # noqa: BLE001
             self._finish_navigation()
-            self.push_event('error', message=f'Error recibiendo navegación: {exc}')
+            self.push_event(
+                'error', kind=kind, message=f'Error recibiendo navegación: {exc}'
+            )
             return
         self._finish_navigation()
-        if kind == 'semantic':
+        if kind in ('semantic', 'evaluation'):
             self.push_event(
                 'navigation_result',
+                kind=kind,
                 success=bool(result.success),
                 matched_node=result.matched_node_id,
                 score=float(result.score),
+                accepted=bool(result.accepted),
                 navigation_success=bool(result.navigation_success),
                 message=result.message,
                 failure_type=result.failure_type,
+                rejection_reason=result.rejection_reason,
+                candidates=[{
+                    'node_id': item.node_id,
+                    'score': float(item.score),
+                    'global_similarity': float(item.global_similarity),
+                    'object_match_score': float(item.object_match_score),
+                    'crop_similarity': float(item.crop_similarity),
+                    'relation_match_score': float(item.relation_match_score),
+                    'room_match_score': float(item.room_match_score),
+                    'matched_object_ids': list(item.matched_object_ids),
+                    'matched_object_labels': list(item.matched_object_labels),
+                    'best_crop_object_id': item.best_crop_object_id,
+                    'best_crop_object_label': item.best_crop_object_label,
+                } for item in result.top_k_candidates],
             )
             return
         succeeded = status == GoalStatus.STATUS_SUCCEEDED
         self.push_event(
             'navigation_result',
+            kind=kind,
             success=succeeded,
             matched_node='',
             score=0.0,
@@ -726,6 +899,8 @@ class SemanticOperatorNode(Node):
         room_id: str,
         corner_a: tuple[float, float],
         corner_b: tuple[float, float],
+        polygon: list[tuple[float, float]] | None = None,
+        transition_width_m: float = 0.5,
     ) -> bool:
         label = room_id.strip()
         if not label:
@@ -735,17 +910,24 @@ class SemanticOperatorNode(Node):
             self.push_event('error', message='El servicio /add_room no está disponible.')
             return False
         try:
-            bounds = normalized_room_bounds(corner_a, corner_b)
+            room = (
+                Room.from_polygon(label, polygon, transition_width_m)
+                if polygon else Room(
+                    label, *normalized_room_bounds(corner_a, corner_b),
+                    transition_width_m=transition_width_m,
+                )
+            )
         except ValueError as exc:
             self.push_event('error', message=str(exc))
             return False
-        room = Room(label, *bounds)
         request = AddRoom.Request()
         request.room_id = room.room_id
         request.min_x = room.min_x
         request.min_y = room.min_y
         request.max_x = room.max_x
         request.max_y = room.max_y
+        request.polygon = [Point32(x=x, y=y, z=0.0) for x, y in room.corners()]
+        request.transition_width_m = room.transition_width_m
         future = self._room_client.call_async(request)
         future.add_done_callback(
             lambda done, requested_room=room: self._on_room_result(
@@ -840,7 +1022,7 @@ class SemanticOperatorNode(Node):
 
 
 class ArrowKeyFilter(QObject):
-    """Capture arrow key press/release events regardless of focused widget."""
+    """Capture teleoperation and push-to-talk keys at application level."""
 
     KEY_DIRECTIONS = {
         Qt.Key_Up: 'forward',
@@ -854,8 +1036,28 @@ class ArrowKeyFilter(QObject):
         self._window = window
 
     def eventFilter(self, watched, event) -> bool:  # noqa: N802
-        direction = self.KEY_DIRECTIONS.get(getattr(event, 'key', lambda: None)())
+        if event.type() in (
+            QEvent.ApplicationDeactivate,
+            QEvent.WindowDeactivate,
+        ):
+            self._window.release_keyboard_controls()
+            return super().eventFilter(watched, event)
+        key = getattr(event, 'key', lambda: None)()
+        if key == Qt.Key_Space and not event.isAutoRepeat():
+            if (
+                event.type() == QEvent.KeyRelease
+                and self._window.voice_shortcut_active()
+            ):
+                self._window.set_voice_push_to_talk(False)
+                return True
+            if self._window.voice_shortcut_enabled():
+                if event.type() == QEvent.KeyPress:
+                    self._window.set_voice_push_to_talk(True)
+                    return True
+        direction = self.KEY_DIRECTIONS.get(key)
         if direction is None or event.isAutoRepeat():
+            return super().eventFilter(watched, event)
+        if not self._window.teleop_keys_enabled():
             return super().eventFilter(watched, event)
         if event.type() == QEvent.KeyPress:
             self._window.set_direction(direction, True)
@@ -877,10 +1079,13 @@ class SemanticOperatorWindow(QMainWindow):
         self._directions: set[str] = set()
         self._last_motion = (0.0, 0.0)
         self._current_position: tuple[float, float] | None = None
+        self._space_voice_active = False
         self._key_filter = ArrowKeyFilter(self)
 
         self.setWindowTitle(f'Operador semántico — {node.scene_id}')
-        self.resize(1180, 760)
+        self.resize(1360, 860)
+        self.setMinimumSize(820, 560)
+        self.setStyleSheet(_OPERATOR_STYLE)
         self._build_ui()
         application = QApplication.instance()
         if application is not None:
@@ -897,15 +1102,65 @@ class SemanticOperatorWindow(QMainWindow):
         )
         self._refresh_rooms()
 
+    def teleop_keys_enabled(self) -> bool:
+        """Only capture arrow keys while the mapping tab is visible."""
+        return not hasattr(self, 'main_tabs') or self.main_tabs.currentIndex() == 0
+
+    def voice_shortcut_enabled(self) -> bool:
+        """Accept Space as PTT only on Navigation and outside text editors."""
+        if not hasattr(self, 'main_tabs') or self.main_tabs.currentIndex() != 1:
+            return False
+        if not hasattr(self, 'voice_ptt') or not self.voice_ptt.isEnabled():
+            return False
+        focus = QApplication.focusWidget()
+        return not isinstance(
+            focus, (QLineEdit, QTextEdit, QAbstractSpinBox, QComboBox)
+        )
+
+    def voice_shortcut_active(self) -> bool:
+        """Return whether Space currently owns the microphone gesture."""
+        return self._space_voice_active
+
+    def set_voice_push_to_talk(self, pressed: bool) -> None:
+        """Mirror a held Space key to the microphone push-to-talk button."""
+        if pressed == self._space_voice_active:
+            return
+        self._space_voice_active = pressed
+        self.voice_ptt.setDown(pressed)
+        if pressed:
+            if not self._start_voice_recording():
+                self._space_voice_active = False
+                self.voice_ptt.setDown(False)
+        else:
+            self._node.stop_voice_recording()
+
+    def release_keyboard_controls(self) -> None:
+        """Stop motion and recording if the window loses keyboard focus."""
+        self._directions.clear()
+        self._node.stop()
+        if self._space_voice_active:
+            self.set_voice_push_to_talk(False)
+
+    def _tab_changed(self, index: int) -> None:
+        self.release_keyboard_controls()
+        if index == 2:
+            self.retrieval_evaluation.reload()
+        elif index == 3:
+            self.campaign_designer.reload()
+
     def _build_ui(self) -> None:
+        self.main_tabs = QTabWidget()
+        self.main_tabs.setDocumentMode(True)
+        self.setCentralWidget(self.main_tabs)
+
         root = QSplitter(Qt.Horizontal)
-        self.setCentralWidget(root)
+        self.main_tabs.addTab(root, 'Construcción del mapa semántico')
 
         camera_panel = QWidget()
         camera_layout = QVBoxLayout(camera_panel)
         self.camera_label = QLabel(f'Esperando {self._node.camera_topic}…')
         self.camera_label.setAlignment(Qt.AlignCenter)
-        self.camera_label.setMinimumSize(640, 480)
+        self.camera_label.setMinimumSize(320, 240)
         self.camera_label.setStyleSheet(
             'background: #17191c; color: #b8bec7; border: 1px solid #3b4048;'
         )
@@ -918,7 +1173,6 @@ class SemanticOperatorWindow(QMainWindow):
         controls_layout = QVBoxLayout(controls)
         controls_layout.addWidget(self._connection_group())
         controls_layout.addWidget(self._motion_group())
-        controls_layout.addWidget(self._voice_group())
         controls_layout.addWidget(self._capture_group())
         controls_layout.addWidget(self._room_group())
         controls_layout.addStretch(1)
@@ -926,13 +1180,83 @@ class SemanticOperatorWindow(QMainWindow):
         controls_scroll.setWidgetResizable(True)
         controls_scroll.setWidget(controls)
         root.addWidget(controls_scroll)
+        root.setChildrenCollapsible(False)
+        root.setHandleWidth(7)
         root.setStretchFactor(0, 3)
         root.setStretchFactor(1, 2)
+        root.setSizes([820, 500])
 
         self.log = QTextEdit()
         self.log.setReadOnly(True)
         self.log.setMaximumHeight(150)
         camera_layout.addWidget(self.log)
+
+        navigation_page = QWidget()
+        navigation_layout = QVBoxLayout(navigation_page)
+        navigation_intro = QLabel(
+            'Introduzca una orden o use el micrófono. Las consultas semánticas '
+            'se resolverán mediante el grafo; las coordenadas se enviarán a Nav2.'
+        )
+        navigation_intro.setWordWrap(True)
+        navigation_intro.setObjectName('sectionHint')
+        navigation_layout.addWidget(navigation_intro)
+        navigation_layout.addWidget(self._voice_group())
+        navigation_layout.addStretch(1)
+        self.main_tabs.addTab(navigation_page, 'Navegación')
+
+        self.retrieval_evaluation = RetrievalEvaluationWidget(
+            scene_id=self._node.scene_id,
+            graph_database=self._node.graph_database,
+            map_file=self._node.map_file,
+            queries_file=self._node.queries_file,
+            ground_truth_file=self._node.ground_truth_file,
+            submit_callback=self._run_evaluation_query,
+            cancel_callback=self._node.cancel_navigation,
+            campaign_changed_callback=lambda: (
+                self.campaign_designer.reload()
+                if hasattr(self, 'campaign_designer') else None
+            ),
+            log_callback=lambda message, error=False: self._append_log(
+                message, error=error
+            ),
+        )
+        self.main_tabs.addTab(self.retrieval_evaluation, 'Evaluación')
+
+        self.campaign_designer = CampaignDesignerWidget(
+            scene_id=self._node.scene_id,
+            graph_database=self._node.graph_database,
+            map_file=self._node.map_file,
+            queries_file=self._node.queries_file,
+            ground_truth_file=self._node.ground_truth_file,
+            start_poses_file=self._node.start_poses_file,
+            robot_entity_name=self._node.robot_entity_name,
+            world_name=self._node.world_name,
+            frozen_config_hash=self._node.frozen_config_hash,
+            frozen_config_path=self._node.frozen_config_path,
+            retrieval_method=self._node.retrieval_method,
+            campaign_output_dir=self._node.campaign_output_dir,
+            semantic_action_name=str(
+                self._node.get_parameter('semantic_action_name').value
+            ),
+            log_callback=lambda message, error=False: self._append_log(
+                message, error=error
+            ),
+        )
+        self.main_tabs.addTab(
+            self.campaign_designer, 'Diseño y evaluación de campañas'
+        )
+        self.main_tabs.currentChanged.connect(self._tab_changed)
+
+    def _run_evaluation_query(
+        self, query: str, language: str, navigate: bool
+    ) -> bool:
+        return self._node.send_semantic_navigation(
+            query,
+            language,
+            decision_only=not navigate,
+            event_kind='evaluation',
+            top_k=1000,
+        )
 
     def _connection_group(self) -> QGroupBox:
         group = QGroupBox('Conexiones ROS 2')
@@ -975,7 +1299,8 @@ class SemanticOperatorWindow(QMainWindow):
             )
             layout.addWidget(button, row, column)
         stop = QPushButton('PARAR')
-        stop.setStyleSheet('font-weight: bold; background: #9e2f2f; color: white;')
+        stop.setObjectName('dangerButton')
+        stop.setStyleSheet('font-weight: bold;')
         stop.clicked.connect(self.emergency_stop)
         layout.addWidget(stop, 2, 0, 1, 3)
         self.linear_speed = self._number_box(0.0, 1.5, self._node.linear_speed, 0.05)
@@ -1010,12 +1335,15 @@ class SemanticOperatorWindow(QMainWindow):
         layout.addWidget(self.voice_query, 1, 0, 1, 3)
 
         self.voice_ptt = QPushButton('Mantener para hablar')
+        self.voice_ptt.setObjectName('voicePttButton')
         self.voice_ptt.setEnabled(False)
         self.voice_ptt.pressed.connect(self._start_voice_recording)
         self.voice_ptt.released.connect(self._node.stop_voice_recording)
         send = QPushButton('Ejecutar texto')
+        send.setObjectName('accentButton')
         send.clicked.connect(self._dispatch_voice_query)
         cancel = QPushButton('Cancelar navegación')
+        cancel.setObjectName('dangerButton')
         cancel.clicked.connect(self._node.cancel_navigation)
         layout.addWidget(self.voice_ptt, 2, 0)
         layout.addWidget(send, 2, 1)
@@ -1023,16 +1351,20 @@ class SemanticOperatorWindow(QMainWindow):
 
         self.voice_decision_only = QCheckBox('Solo buscar, sin mover el robot')
         layout.addWidget(self.voice_decision_only, 3, 0, 1, 3)
+        shortcut = QLabel('⌨ Mantén pulsado ESPACIO para hablar')
+        shortcut.setObjectName('shortcutBadge')
+        shortcut.setAlignment(Qt.AlignCenter)
+        layout.addWidget(shortcut, 4, 0, 1, 3)
         self.voice_stage = QLabel('Whisper sin cargar')
         self.voice_stage.setWordWrap(True)
-        layout.addWidget(self.voice_stage, 4, 0, 1, 3)
+        layout.addWidget(self.voice_stage, 5, 0, 1, 3)
         return group
 
     def _capture_group(self) -> QGroupBox:
         group = QGroupBox('Nodos y observaciones')
         layout = QFormLayout(group)
         self.node_label = QLineEdit()
-        self.node_label.setPlaceholderText('vacío = nombre automático según sala')
+        self.node_label.setPlaceholderText('vacío = siguiente nombre W1, W2, …')
         self.views = QLineEdit('0, 90, 180, 270')
         layout.addRow('Nombre del nodo', self.node_label)
         layout.addRow('Vistas relativas (°)', self.views)
@@ -1056,7 +1388,7 @@ class SemanticOperatorWindow(QMainWindow):
         return group
 
     def _room_group(self) -> QGroupBox:
-        group = QGroupBox('Crear sala rectangular')
+        group = QGroupBox('Crear sala poligonal')
         layout = QGridLayout(group)
         self.room_name = QLineEdit()
         self.room_name.setPlaceholderText('ej. salon, cocina, despacho')
@@ -1076,6 +1408,14 @@ class SemanticOperatorWindow(QMainWindow):
         layout.addWidget(self.by, 2, 2)
         layout.addWidget(QLabel('x / y'), 2, 3)
 
+        self.room_polygon = QLineEdit()
+        self.room_polygon.setPlaceholderText('opcional: x,y; x,y; x,y; …')
+        layout.addWidget(QLabel('Vértices'), 3, 0)
+        layout.addWidget(self.room_polygon, 3, 1, 1, 3)
+        self.room_transition = self._number_box(0.0, 5.0, 0.5, 0.1)
+        layout.addWidget(QLabel('Transición (m)'), 4, 0)
+        layout.addWidget(self.room_transition, 4, 1)
+
         a_robot = QPushButton('A ← pose robot')
         b_robot = QPushButton('B ← pose robot')
         a_click = QPushButton('A ← punto RViz')
@@ -1084,17 +1424,17 @@ class SemanticOperatorWindow(QMainWindow):
         b_robot.clicked.connect(lambda: self._set_corner('b', 'robot'))
         a_click.clicked.connect(lambda: self._set_corner('a', 'rviz'))
         b_click.clicked.connect(lambda: self._set_corner('b', 'rviz'))
-        layout.addWidget(a_robot, 3, 0, 1, 2)
-        layout.addWidget(b_robot, 3, 2, 1, 2)
-        layout.addWidget(a_click, 4, 0, 1, 2)
-        layout.addWidget(b_click, 4, 2, 1, 2)
+        layout.addWidget(a_robot, 5, 0, 1, 2)
+        layout.addWidget(b_robot, 5, 2, 1, 2)
+        layout.addWidget(a_click, 6, 0, 1, 2)
+        layout.addWidget(b_click, 6, 2, 1, 2)
 
         create = QPushButton('Crear / actualizar sala')
         create.clicked.connect(self._create_room)
-        layout.addWidget(create, 5, 0, 1, 4)
+        layout.addWidget(create, 7, 0, 1, 4)
         self.room_list = QListWidget()
         self.room_list.setMaximumHeight(85)
-        layout.addWidget(self.room_list, 6, 0, 1, 4)
+        layout.addWidget(self.room_list, 8, 0, 1, 4)
         return group
 
     @staticmethod
@@ -1156,9 +1496,9 @@ class SemanticOperatorWindow(QMainWindow):
         language = str(self.voice_language.currentData())
         self._node.prepare_voice(language)
 
-    def _start_voice_recording(self) -> None:
+    def _start_voice_recording(self) -> bool:
         self.emergency_stop()
-        self._node.start_voice_recording()
+        return self._node.start_voice_recording()
 
     def _dispatch_voice_query(self, text: str | None = None) -> None:
         if not isinstance(text, str):
@@ -1229,10 +1569,29 @@ class SemanticOperatorWindow(QMainWindow):
         y_box.setValue(position[1])
 
     def _create_room(self) -> None:
+        polygon: list[tuple[float, float]] = []
+        raw_polygon = self.room_polygon.text().strip()
+        if raw_polygon:
+            try:
+                parsed = [
+                    tuple(float(value.strip()) for value in vertex.split(','))
+                    for vertex in raw_polygon.split(';') if vertex.strip()
+                ]
+                if len(parsed) < 3 or any(len(vertex) != 2 for vertex in parsed):
+                    raise ValueError
+                polygon = [(vertex[0], vertex[1]) for vertex in parsed]
+            except (TypeError, ValueError):
+                QMessageBox.warning(
+                    self, 'Polígono no válido',
+                    'Usa al menos tres vértices con formato x,y; x,y; x,y.',
+                )
+                return
         self._node.create_room(
             self.room_name.text(),
             (self.ax.value(), self.ay.value()),
             (self.bx.value(), self.by.value()),
+            polygon=polygon or None,
+            transition_width_m=self.room_transition.value(),
         )
 
     def _update_fast(self) -> None:
@@ -1287,6 +1646,17 @@ class SemanticOperatorWindow(QMainWindow):
             self.pose_label.setText(f'Pose map → base_link: x={x:.3f}, y={y:.3f}')
 
     def _handle_event(self, kind: str, payload: dict[str, Any]) -> None:
+        if payload.get('kind') == 'evaluation' and kind in (
+            'navigation_started',
+            'navigation_feedback',
+            'navigation_result',
+            'error',
+        ):
+            self.retrieval_evaluation.handle_event(kind, payload)
+            message = payload.get('message')
+            if message:
+                self._append_log(str(message), error=kind == 'error')
+            return
         if kind == 'voice_loading':
             self.voice_prepare.setEnabled(False)
             self.voice_language.setEnabled(False)
@@ -1367,6 +1737,8 @@ class SemanticOperatorWindow(QMainWindow):
 
     def _reset_voice_button(self) -> None:
         loading, ready, _recording = self._node.voice_state()
+        self._space_voice_active = False
+        self.voice_ptt.setDown(False)
         self.voice_ptt.setText('Mantener para hablar')
         self.voice_ptt.setStyleSheet('')
         self.voice_ptt.setEnabled(ready)
@@ -1377,8 +1749,8 @@ class SemanticOperatorWindow(QMainWindow):
         self.room_list.clear()
         for room in sorted(self._node.rooms_snapshot(), key=lambda value: value.room_id):
             self.room_list.addItem(
-                f'{room.room_id}: ({room.min_x:.2f}, {room.min_y:.2f}) → '
-                f'({room.max_x:.2f}, {room.max_y:.2f})'
+                f'{room.room_id}: {len(room.corners())} vértices · '
+                f'transición {room.transition_width_m:.2f} m'
             )
 
     def _append_log(self, message: str, *, error: bool = False) -> None:

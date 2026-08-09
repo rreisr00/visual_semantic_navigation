@@ -9,6 +9,10 @@ evaluation_collector:
 
     # Campaign I/O.
     test_suite_path: ""                           # set to an absolute test_suite.yaml
+    ground_truth_path: ""
+    graph_database: ""
+    map_file: ""
+    frozen_config_path: ""
     output_dir: "~/visual_semantic_navigation/experiments/simulation/campaigns"
     campaign_id: ""
     scene_id: "scene_unset"

@@ -27,6 +27,7 @@ from __future__ import annotations
 
 import os
 import json
+import shutil
 import subprocess
 import threading
 import time
@@ -57,6 +58,7 @@ from semantic_evaluation.core import (
     build_room_map,
     write_csv,
 )
+from semantic_evaluation.core.reproducibility import file_sha256
 
 # Optional: only needed for image-based test cases.
 try:
@@ -83,6 +85,7 @@ class _TestCase:
     exact_valid_nodes: tuple[str, ...] = ()
     nearby_valid_nodes: tuple[str, ...] = ()
     is_negative: bool = False
+    target_visible: bool = True
     timeout_s: float = 0.0
 
     @property
@@ -100,6 +103,10 @@ class EvaluationCollectorNode(Node):
         self.declare_parameter("action_name", "navigate_to_semantic_goal")
         self.declare_parameter("snapshot_service_name", "get_graph_snapshot")
         self.declare_parameter("test_suite_path", "")
+        self.declare_parameter("ground_truth_path", "")
+        self.declare_parameter("graph_database", "")
+        self.declare_parameter("map_file", "")
+        self.declare_parameter("frozen_config_path", "")
         self.declare_parameter(
             "output_dir", "~/visual_semantic_navigation/experiments/simulation/campaigns"
         )
@@ -135,6 +142,23 @@ class EvaluationCollectorNode(Node):
         self._test_suite_path = os.path.expanduser(
             self.get_parameter("test_suite_path").value
         )
+        self._input_paths = {
+            "queries": os.path.expanduser(
+                str(self.get_parameter("test_suite_path").value)
+            ),
+            "ground_truth": os.path.expanduser(
+                str(self.get_parameter("ground_truth_path").value)
+            ),
+            "graph_database": os.path.expanduser(
+                str(self.get_parameter("graph_database").value)
+            ),
+            "map": os.path.expanduser(
+                str(self.get_parameter("map_file").value)
+            ),
+            "frozen_config": os.path.expanduser(
+                str(self.get_parameter("frozen_config_path").value)
+            ),
+        }
         self._output_dir = os.path.expanduser(self.get_parameter("output_dir").value)
         self._scene_id = str(self.get_parameter("scene_id").value)
         self._method = str(self.get_parameter("method").value)
@@ -168,6 +192,7 @@ class EvaluationCollectorNode(Node):
         )
         self._start_poses = self._load_start_poses(self._start_poses_path)
         self._campaign_status = "complete"
+        self._active_goal_handle = None
 
         # ── Separate callback groups for action vs snapshot service ───────── #
         self._action_cbg = MutuallyExclusiveCallbackGroup()
@@ -263,6 +288,7 @@ class EvaluationCollectorNode(Node):
         if outcome is None:
             return self._failed_result(case, graph, "no action result", hardware)
 
+        expected_rejection = case.is_negative or not case.target_visible
         result = TestCaseResult(
             case_id=case.case_id,
             query=case.image_path if case.use_image else case.query_text,
@@ -288,22 +314,23 @@ class EvaluationCollectorNode(Node):
                 case.exact_valid_nodes,
             ),
             is_negative=case.is_negative,
+            target_visible=case.target_visible,
             accepted=bool(outcome.accepted),
             semantic_success=(
                 not outcome.accepted
-                if case.is_negative
+                if expected_rejection
                 else outcome.matched_node_id in set(case.exact_valid_nodes)
             ),
             nearby_semantic_success=(
                 not outcome.accepted
-                if case.is_negative
+                if expected_rejection
                 else outcome.matched_node_id in (
                     set(case.exact_valid_nodes) | set(case.nearby_valid_nodes)
                 )
             ),
             navigation_success=(
                 None
-                if self._decision_only or case.is_negative
+                if self._decision_only or expected_rejection
                 else bool(outcome.navigation_success)
             ),
             retrieval_latency_ms=float(outcome.retrieval_latency_ms),
@@ -333,7 +360,7 @@ class EvaluationCollectorNode(Node):
         if not result.failure_type and not result.semantic_success:
             result.failure_type = (
                 "semantic_rejection_error"
-                if case.is_negative else "semantic_mismatch"
+                if expected_rejection else "semantic_mismatch"
             )
         return annotate_accuracy(
             result, self._separator, self._strategy, self._room_map
@@ -370,13 +397,24 @@ class EvaluationCollectorNode(Node):
             self.get_logger().error("Goal rejected by server.")
             return None
 
+        self._active_goal_handle = goal_handle
         result_future = goal_handle.get_result_async()
         result_msg = self._await(result_future, result_timeout)
         if result_msg is None:
             self.get_logger().error("Result timed out.")
             self._await(goal_handle.cancel_goal_async(), 5.0)
+            self._active_goal_handle = None
             return None
+        self._active_goal_handle = None
         return result_msg.result
+
+    def cancel_active_goal(self) -> None:
+        """Cancel an in-flight semantic/Nav2 goal before shutting down."""
+        handle = self._active_goal_handle
+        self._campaign_status = "cancelled"
+        if handle is not None:
+            self._await(handle.cancel_goal_async(), 5.0)
+            self._active_goal_handle = None
 
     def _restore_start_pose(self, pose_id: str) -> bool:
         """Teleport the simulated model and reset AMCL before a campaign case."""
@@ -487,6 +525,9 @@ class EvaluationCollectorNode(Node):
                         "nearby_valid_nodes", []
                     )),
                     is_negative=bool(entry.get("is_negative", False)),
+                    target_visible=bool(entry.get(
+                        "target_visible", not bool(entry.get("is_negative", False))
+                    )),
                     timeout_s=float(entry.get("timeout_s", 0.0)),
                 )
             )
@@ -571,11 +612,35 @@ class EvaluationCollectorNode(Node):
             "test_suite_path": self._test_suite_path,
             "n_cases": len(results),
             "room_source": self._room_source,
+            "inputs": self._snapshot_inputs(run_dir),
         }
         with open(os.path.join(run_dir, "manifest.json"), "w", encoding="utf-8") as handle:
             json.dump(manifest, handle, indent=2)
         self.get_logger().info(f"Wrote {len(results)} results to '{path}'.")
         return path
+
+    def _snapshot_inputs(self, run_dir: str) -> dict[str, dict[str, str]]:
+        """Hash and copy immutable campaign inputs alongside the results."""
+        inputs_dir = os.path.join(run_dir, "inputs")
+        os.makedirs(inputs_dir, exist_ok=True)
+        manifest: dict[str, dict[str, str]] = {}
+        for label, source in self._input_paths.items():
+            if not source or not os.path.isfile(source):
+                continue
+            suffix = os.path.splitext(source)[1]
+            destination = os.path.join(inputs_dir, f"{label}{suffix}")
+            # SQLite may have WAL sidecars; retain its hash/path but avoid a
+            # misleading file copy that is not an atomic database snapshot.
+            copied = ""
+            if label != "graph_database":
+                shutil.copy2(source, destination)
+                copied = os.path.relpath(destination, run_dir)
+            manifest[label] = {
+                "path": os.path.abspath(source),
+                "sha256": file_sha256(source),
+                "snapshot": copied,
+            }
+        return manifest
 
     @staticmethod
     def _git_commit() -> str:
@@ -623,6 +688,7 @@ class EvaluationCollectorNode(Node):
             exact_valid_nodes=list(case.exact_valid_nodes),
             nearby_valid_nodes=list(case.nearby_valid_nodes),
             is_negative=case.is_negative,
+            target_visible=case.target_visible,
             failure_type=("timeout" if "timeout" in reason else "data_logging_failure"),
             campaign_id=self._campaign_id,
             run_id=self._run_id,
@@ -658,7 +724,7 @@ def main(args=None) -> None:
     try:
         node.run_campaign()
     except KeyboardInterrupt:
-        pass
+        node.cancel_active_goal()
     finally:
         # Stop the background spin and let the daemon thread unwind *before* the
         # node/context are torn down, so rclpy does not abort mid-spin.

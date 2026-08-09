@@ -46,6 +46,13 @@ def generate_launch_description() -> LaunchDescription:
         DeclareLaunchArgument('use_sim_time', default_value='true'),
         DeclareLaunchArgument('camera_topic', default_value='/camera/image_raw'),
         DeclareLaunchArgument('rooms_file', default_value=''),
+        DeclareLaunchArgument('map_file', default_value=''),
+        DeclareLaunchArgument('graph_database', default_value=''),
+        DeclareLaunchArgument('queries_file', default_value=''),
+        DeclareLaunchArgument('ground_truth_file', default_value=''),
+        DeclareLaunchArgument('start_poses_file', default_value=''),
+        DeclareLaunchArgument('robot_entity_name', default_value='semantic_robot'),
+        DeclareLaunchArgument('world_name', default_value='default'),
         DeclareLaunchArgument('params_file', default_value=default_params),
         Node(
             package='semantic_evaluation',
@@ -60,6 +67,19 @@ def generate_launch_description() -> LaunchDescription:
                     'use_sim_time': LaunchConfiguration('use_sim_time'),
                     'camera_topic': LaunchConfiguration('camera_topic'),
                     'rooms_file': LaunchConfiguration('rooms_file'),
+                    'map_file': LaunchConfiguration('map_file'),
+                    'graph_database': LaunchConfiguration('graph_database'),
+                    'queries_file': LaunchConfiguration('queries_file'),
+                    'ground_truth_file': LaunchConfiguration(
+                        'ground_truth_file'
+                    ),
+                    'start_poses_file': LaunchConfiguration(
+                        'start_poses_file'
+                    ),
+                    'robot_entity_name': LaunchConfiguration(
+                        'robot_entity_name'
+                    ),
+                    'world_name': LaunchConfiguration('world_name'),
                 },
             ],
         ),
