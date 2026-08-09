@@ -17,7 +17,7 @@ from typing import Iterable, Sequence
 
 import numpy as np
 
-from semantic_navigation_core.multiview import mean_embedding
+from semantic_navigation_core.multiview import purity_weighted_node_embedding
 from semantic_navigation_core.rooms import Room
 from semantic_navigation_core.types import (
     Observation,
@@ -33,7 +33,7 @@ EDGE_CONTAINS = "CONTAINS"
 EDGE_HAS_OBSERVATION = "HAS_OBSERVATION"
 EDGE_OBSERVED_IN = "OBSERVED_IN"
 EDGE_CONNECTED_TO = "CONNECTED_TO"
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 
 @dataclass
@@ -191,6 +191,11 @@ def load_semantic_nodes(
                         if position_3d and len(position_3d) == 3 else None
                     ),
                     position_3d_frame=str(item.get("position_3d_frame", "")),
+                    map_position=(
+                        tuple(float(v) for v in (item.get("map_position") or []))
+                        if len(item.get("map_position") or []) == 3 else None
+                    ),
+                    room_id=(str(item["room_id"]) if item.get("room_id") else None),
                 ))
             relations = [SpatialRelation(
                 subject=str(item.get("subject_id", "")),
@@ -240,6 +245,18 @@ def load_semantic_nodes(
                 angular_error=float(payload.get("angular_error", 0.0)),
                 image_valid=bool(payload.get("image_valid", False)),
                 depth_valid=bool(payload.get("depth_valid", False)),
+                camera_room=(
+                    str(payload["camera_room"]) if payload.get("camera_room") else None
+                ),
+                observation_room=(
+                    str(payload["observation_room"])
+                    if payload.get("observation_room") else None
+                ),
+                purity=(
+                    float(payload["purity"]) if payload.get("purity") is not None else None
+                ),
+                contamination_class=str(payload.get("contamination_class", "unknown")),
+                transition_zone=bool(payload.get("transition_zone", False)),
             ))
             continue
         if edge_type != EDGE_CONTAINS:
@@ -302,13 +319,21 @@ def load_rooms(db_path: str) -> list[Room]:
         if rec.type != NODE_TYPE_ROOM:
             continue
         p = rec.properties
-        rooms.append(Room(
-            room_id=rec.name,
-            min_x=float(p.get("min_x", 0.0)),
-            min_y=float(p.get("min_y", 0.0)),
-            max_x=float(p.get("max_x", 0.0)),
-            max_y=float(p.get("max_y", 0.0)),
-        ).normalized())
+        raw_polygon = p.get("polygon", [])
+        if isinstance(raw_polygon, str):
+            raw_polygon = json.loads(raw_polygon) if raw_polygon else []
+        transition = float(p.get("transition_width_m", 0.5))
+        if len(raw_polygon) >= 3:
+            rooms.append(Room.from_polygon(rec.name, raw_polygon, transition))
+        else:
+            rooms.append(Room(
+                room_id=rec.name,
+                min_x=float(p.get("min_x", 0.0)),
+                min_y=float(p.get("min_y", 0.0)),
+                max_x=float(p.get("max_x", 0.0)),
+                max_y=float(p.get("max_y", 0.0)),
+                transition_width_m=transition,
+            ).normalized())
     return rooms
 
 
@@ -397,6 +422,8 @@ def save_semantic_graph(
             _upsert_node(cur, room.room_id, NODE_TYPE_ROOM, {
                 "min_x": room.min_x, "min_y": room.min_y,
                 "max_x": room.max_x, "max_y": room.max_y,
+                "polygon": json.dumps([list(point) for point in room.corners()]),
+                "transition_width_m": room.transition_width_m,
             })
             written_rooms.add(room.room_id)
         # Rooms referenced only via node.room_id (no rectangle known): create a
@@ -421,7 +448,7 @@ def save_semantic_graph(
             )
 
         for node in nodes:
-            wp = node.to_waypoint(mean_embedding(node.embeddings()))
+            wp = node.to_waypoint(purity_weighted_node_embedding(node))
             nav_position = node.navigation_position or node.position
             nav_orientation = node.navigation_orientation or node.orientation
             props = {
@@ -496,6 +523,8 @@ def save_semantic_graph(
                         ),
                         "position_2d": json.dumps(detected.position_2d),
                         "position_3d": json.dumps(detected.position_3d),
+                        "position_3d_map": json.dumps(detected.map_position),
+                        "room_id": detected.room_id or "",
                     }
                     _upsert_node(cur, object_id, NODE_TYPE_OBJECT, object_props)
                     _upsert_edge(cur, EDGE_CONTAINS, node.node_id, object_id, {})
@@ -581,6 +610,11 @@ def _observation_payload(
         "angular_error": observation.angular_error,
         "image_valid": observation.image_valid,
         "depth_valid": observation.depth_valid,
+        "camera_room": observation.camera_room or "",
+        "observation_room": observation.observation_room or "",
+        "purity": observation.purity,
+        "contamination_class": observation.contamination_class,
+        "transition_zone": observation.transition_zone,
         "image_embedding": (
             [float(value) for value in np.asarray(observation.embedding)]
             if observation.embedding is not None else []
@@ -598,6 +632,8 @@ def _observation_payload(
                 "position_2d": item.position_2d,
                 "position_3d": item.position_3d,
                 "position_3d_frame": item.position_3d_frame,
+                "map_position": item.map_position,
+                "room_id": item.room_id or "",
             }
             for item in observation.objects
         ],

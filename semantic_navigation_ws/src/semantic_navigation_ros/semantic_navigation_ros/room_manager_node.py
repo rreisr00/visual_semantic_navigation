@@ -92,6 +92,7 @@ class RoomManagerNode(Node):
         req.min_y = float(room.min_y)
         req.max_x = float(room.max_x)
         req.max_y = float(room.max_y)
+        req.transition_width_m = float(room.transition_width_m)
 
         done = threading.Event()
         future = self._add_room_client.call_async(req)

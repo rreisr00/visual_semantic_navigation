@@ -153,4 +153,29 @@ def test_v2_round_trip_preserves_multiview_metadata_and_topology(tmp_path):
     assert loaded["wp_01"].navigation_position == (1.2, 2.1, 0.0)
     assert loaded["wp_01"].neighbors == ["wp_02"]
     assert loaded["wp_01"].observations[1].camera_frame == "camera_rgb_optical_frame"
-    assert load_metadata(db)["schema_version"] == "2"
+    assert load_metadata(db)["schema_version"] == "3"
+
+
+def test_polygon_and_contamination_metadata_round_trip(tmp_path):
+    db = str(tmp_path / "graph.db")
+    room = Room.from_polygon(
+        "office", [(0, 0), (4, 0), (3, 3), (0, 2)], 0.4
+    )
+    node = make_node(room="office")
+    observation = node.observations[0]
+    observation.camera_room = "office"
+    observation.observation_room = "hall"
+    observation.purity = 0.4
+    observation.contamination_class = "contaminated"
+    observation.transition_zone = True
+    observation.objects[0].room_id = "hall"
+    observation.objects[0].map_position = (3.5, 1.0, 0.0)
+    save_semantic_graph(db, [node], rooms=[room])
+
+    assert load_rooms(db) == [room]
+    loaded = load_semantic_nodes(db)[0].observations[0]
+    assert loaded.camera_room == "office"
+    assert loaded.observation_room == "hall"
+    assert loaded.purity == pytest.approx(0.4)
+    assert loaded.contamination_class == "contaminated"
+    assert loaded.objects[0].room_id == "hall"

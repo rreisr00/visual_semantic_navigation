@@ -1,13 +1,12 @@
-# Define (or redefine) a rectangular room zone in the map frame.
-# The knowledge-graph bridge creates a type="room" node with the rectangle
-# stored as properties, then sweeps existing waypoints: every waypoint whose
-# pose lies inside the rectangle gets a CONTAINS room->waypoint edge (and
-# stale edges from a previous rectangle are removed).
+# Define (or redefine) a room polygon in the map frame. When polygon has fewer
+# than three vertices, the legacy min/max rectangle is used.
 string room_id
 float64 min_x
 float64 min_y
 float64 max_x
 float64 max_y
+geometry_msgs/Point32[] polygon
+float64 transition_width_m
 ---
 bool success
 string message

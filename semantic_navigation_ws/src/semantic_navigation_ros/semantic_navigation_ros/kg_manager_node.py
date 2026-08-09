@@ -466,10 +466,9 @@ class WaypointCaptureNode(Node):
             return None, pose, "", sm.reason
 
         # Step 4 – store
-        # Use the human label as the node_id when provided (e.g. "cocina_01").
-        # With an empty label the BRIDGE names the waypoint after the room
-        # containing its pose ("<room>_<NN>", timestamped fallback outside
-        # rooms) and returns the final id in the response.
+        # Use the human label as the node_id when provided. With an empty label
+        # the bridge creates the next compact id ("W1", "W2", …) and returns
+        # it in the response.
         store_req = self._build_store_req(
             waypoint_id, pose, camera_pose, image, features,
             goal_handle.request, requested_yaw, depth, depth_camera_pose,

@@ -78,6 +78,8 @@ class ObjectObservation:
     position_2d: tuple[float, float] | None = None
     position_3d: tuple[float, float, float] | None = None
     position_3d_frame: str = ""
+    map_position: tuple[float, float, float] | None = None
+    room_id: str | None = None
     observation_ids: list[str] = field(default_factory=list)
     associated_node_ids: list[str] = field(default_factory=list)
     last_seen: float = 0.0
@@ -104,6 +106,16 @@ class Observation:
     angular_error: float = 0.0
     image_valid: bool = True
     depth_valid: bool = False
+    camera_room: str | None = None
+    observation_room: str | None = None
+    purity: float | None = None
+    contamination_class: str = "unknown"
+    transition_zone: bool = False
+
+    @property
+    def purity_weight(self) -> float:
+        """Weight used for aggregation; legacy/unclassified views stay usable."""
+        return 1.0 if self.purity is None else max(0.0, min(1.0, self.purity))
 
 
 @dataclass

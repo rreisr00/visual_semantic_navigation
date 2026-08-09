@@ -77,8 +77,7 @@ class TeleopCaptureNode(Node):
         self.declare_parameter("camera_topic", "/camera/image_raw")
         self.declare_parameter("capture_action_name", "capture_waypoint")
         self.declare_parameter("dataset_dir", "~/semantic_dataset")
-        # Empty label → the knowledge-graph bridge auto-names the waypoint
-        # after the room containing the robot's pose ("<room>_<NN>").
+        # Empty label → the bridge creates the next compact id (W1, W2, …).
         self.declare_parameter("capture_label", "")
         self.declare_parameter("linear_speed", 0.4)
         self.declare_parameter("angular_speed", 0.8)
@@ -177,7 +176,7 @@ class TeleopCaptureNode(Node):
 
         ts = time.strftime("%Y%m%d_%H%M%S")
         self._save_frame(image, ts)
-        # Empty label lets the bridge name the waypoint after its room.
+        # Empty label lets the bridge choose the next W<number> identifier.
         self._trigger_capture_action(f"{self._label}_{ts}" if self._label else "")
 
     def _save_frame(self, image: Image, ts: str) -> None:

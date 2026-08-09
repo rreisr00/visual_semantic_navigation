@@ -7,3 +7,6 @@ float32[2] position_2d
 float32[3] position_3d
 bool position_3d_valid
 string position_3d_frame
+float32[3] map_position
+bool map_position_valid
+string room_id

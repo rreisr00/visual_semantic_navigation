@@ -16,8 +16,8 @@ Service
               detected_objects (string[])
     Response: success (bool), message (string)
   /add_room  (semantic_interfaces/srv/AddRoom)
-    Defines a rectangular room zone: creates a type="room" node whose
-    rectangle lives in min_x/min_y/max_x/max_y properties, then sweeps
+    Defines a polygonal room zone (legacy rectangles remain supported), then
+    sweeps
     every existing waypoint — inside → CONTAINS room->waypoint edge,
     outside-but-linked → edge removed (redefinition is self-correcting).
     New waypoints are classified on /store_waypoint.
@@ -68,13 +68,14 @@ from semantic_interfaces.srv import (
     StoreWaypoint,
 )
 
-from semantic_navigation_core.rooms import Room, next_instance_name
 from semantic_navigation_core.association import AssociationConfig, match_object
+from semantic_navigation_core.contamination import analyze_room_evidence
 from semantic_navigation_core.geometry import transform_point
+from semantic_navigation_core.rooms import Room, next_waypoint_name, room_of_point
 from semantic_navigation_core.types import ObjectObservation as CoreObjectObservation
 
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 EDGE_CONNECTED_TO = "CONNECTED_TO"
 EDGE_HAS_OBSERVATION = "HAS_OBSERVATION"
 
@@ -235,7 +236,6 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
             is_new = not self._graph.has_node(node_id)
             self._upsert_waypoint_node(node_id, scene_id, request)
             observation_id = self._upsert_observation(node_id, scene_id, request)
-            self._refresh_waypoint_embedding(node_id)
             associations = self._upsert_object_nodes_and_edges(
                 node_id, observation_id, request
             )
@@ -247,6 +247,7 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
                 float(request.pose.pose.position.x),
                 float(request.pose.pose.position.y),
             )
+            self._refresh_waypoint_embedding(node_id)
             if is_new:
                 self._connect_topology(node_id, scene_id)
             response.success = True
@@ -260,22 +261,14 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
         return response
 
     def _auto_name_waypoint(self, x: float, y: float, scene_id: str) -> str:
-        """Room-aware id: "<room>_<NN>" if (x, y) lies inside a room."""
-        for node in self._graph.get_nodes():
-            if node.get_type() != "room":
-                continue
-            room = self._room_from_node(node)
-            if room.contains(x, y):
-                waypoint_names = [
-                    n.get_name()
-                    for n in self._graph.get_nodes()
-                    if (
-                        n.get_type() == "waypoint"
-                        and str(_prop(n, "scene_id", "default")) == scene_id
-                    )
-                ]
-                return next_instance_name(room.room_id, waypoint_names)
-        return f"{scene_id}_waypoint_{time.time_ns()}"
+        """Return the next compact graph-wide id (``W1``, ``W2``, …)."""
+        del x, y, scene_id
+        waypoint_names = [
+            node.get_name()
+            for node in self._graph.get_nodes()
+            if node.get_type() == "waypoint"
+        ]
+        return next_waypoint_name(waypoint_names)
 
     def _upsert_waypoint_node(
         self, node_id: str, scene_id: str, request: StoreWaypoint.Request
@@ -366,6 +359,10 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
                 if request.observation.depth_camera_pose.header.frame_id
                 else request.observation.camera_pose,
             )
+            object_room = (
+                room_of_point(map_position[0], map_position[1], self._rooms())
+                if map_position is not None else None
+            )
             transient = CoreObjectObservation(
                 label=label,
                 embedding=np.asarray(crop, dtype=np.float32) if crop else None,
@@ -417,6 +414,7 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
                 "position_3d_map",
                 json.dumps(map_position) if map_position is not None else "[]",
             )
+            obj_node.set_property("room_id", object_room or "")
             self._graph.update_node(obj_node)
 
             if not self._graph.has_edge("CONTAINS", waypoint_id, obj_id):
@@ -492,7 +490,40 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
             else self._graph.create_node(graph_id, "observation")
         )
         embedding = list(observation.image_embedding or request.visual_embedding)
-        camera_pose = observation.camera_pose.pose
+        camera_pose_msg = (
+            observation.camera_pose
+            if observation.camera_pose.header.frame_id else request.pose
+        )
+        camera_pose = camera_pose_msg.pose
+        rooms = self._rooms()
+        pose_for_depth = (
+            observation.depth_camera_pose
+            if observation.depth_camera_pose.header.frame_id
+            else camera_pose_msg
+        )
+        map_positions = []
+        for detection in observation.detections:
+            map_positions.append(_detection_map_position(detection, pose_for_depth))
+        evidence = analyze_room_evidence(
+            (
+                float(camera_pose.position.x),
+                float(camera_pose.position.y),
+                float(camera_pose.position.z),
+            ),
+            [
+                (position, float(detection.confidence))
+                for detection, position in zip(
+                    observation.detections, map_positions
+                )
+            ],
+            rooms,
+        )
+        detections = [
+            _detection_to_dict(detection, position, object_room)
+            for detection, position, object_room in zip(
+                observation.detections, map_positions, evidence.object_rooms
+            )
+        ]
         payload = {
             "observation_id": observation_id,
             "node_id": waypoint_id,
@@ -511,7 +542,12 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
             "image_valid": bool(observation.image_valid),
             "depth_valid": bool(observation.depth_valid),
             "image_embedding": [float(v) for v in embedding],
-            "detections": [_detection_to_dict(d) for d in observation.detections],
+            "camera_room": evidence.camera_room or "",
+            "observation_room": evidence.observation_room or "",
+            "purity": evidence.purity,
+            "contamination_class": evidence.contamination_class,
+            "transition_zone": evidence.transition_zone,
+            "detections": detections,
             "relations": [_relation_to_dict(r) for r in observation.relations],
         }
         node.set_property("observation_id", observation_id)
@@ -528,6 +564,7 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
 
     def _refresh_waypoint_embedding(self, waypoint_id: str) -> None:
         embeddings: list[list[float]] = []
+        weights: list[float] = []
         for edge in self._graph.get_edges_from_node_by_type(
             EDGE_HAS_OBSERVATION, waypoint_id
         ):
@@ -536,10 +573,18 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
             values = [float(v) for v in payload.get("image_embedding", [])]
             if values:
                 embeddings.append(values)
+                purity = payload.get("purity")
+                weights.append(
+                    1.0 if purity is None else max(0.0, min(1.0, float(purity)))
+                )
         if not embeddings or len({len(values) for values in embeddings}) != 1:
             return
+        if sum(weights) <= 0.0:
+            weights = [1.0] * len(embeddings)
+        total_weight = sum(weights)
         mean = [
-            sum(values[i] for values in embeddings) / len(embeddings)
+            sum(values[i] * weight for values, weight in zip(embeddings, weights))
+            / total_weight
             for i in range(len(embeddings[0]))
         ]
         norm = sqrt(sum(value * value for value in mean))
@@ -651,12 +696,27 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
             response.success = False
             response.message = "room_id must not be empty"
             return response
-        room = Room(
-            room_id, request.min_x, request.min_y, request.max_x, request.max_y
-        ).normalized()
-        if room.min_x == room.max_x or room.min_y == room.max_y:
+        transition_width = (
+            float(request.transition_width_m)
+            if request.transition_width_m > 0.0 else 0.5
+        )
+        polygon = [(point.x, point.y) for point in request.polygon]
+        room = (
+            Room.from_polygon(room_id, polygon, transition_width)
+            if len(polygon) >= 3
+            else Room(
+                room_id, request.min_x, request.min_y,
+                request.max_x, request.max_y,
+                transition_width_m=transition_width,
+            ).normalized()
+        )
+        if (
+            len(room.corners()) < 3
+            or room.min_x == room.max_x
+            or room.min_y == room.max_y
+        ):
             response.success = False
-            response.message = "degenerate rectangle (zero width or height)"
+            response.message = "degenerate room geometry"
             return response
 
         try:
@@ -671,6 +731,8 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
             node.set_property("min_y", float(room.min_y))
             node.set_property("max_x", float(room.max_x))
             node.set_property("max_y", float(room.max_y))
+            node.set_property("polygon", json.dumps(room.corners()))
+            node.set_property("transition_width_m", room.transition_width_m)
             self._graph.update_node(node)
 
             assigned = self._sweep_room(room)
@@ -678,8 +740,8 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
             response.message = "OK"
             response.waypoints_assigned = assigned
             self.get_logger().info(
-                f"Room '{room_id}' [{room.min_x:.2f},{room.min_y:.2f}]–"
-                f"[{room.max_x:.2f},{room.max_y:.2f}] → "
+                f"Room '{room_id}' ({len(room.corners())} vertices, "
+                f"transition={room.transition_width_m:.2f} m) → "
                 f"{assigned} waypoint(s) assigned."
             )
         except Exception as exc:  # noqa: BLE001
@@ -689,7 +751,7 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
         return response
 
     def _sweep_room(self, room: Room) -> int:
-        """Reconcile CONTAINS room→waypoint edges against the rectangle."""
+        """Reconcile CONTAINS room→waypoint edges against its geometry."""
         assigned = 0
         for node in self._graph.get_nodes():
             if node.get_type() != "waypoint":
@@ -712,7 +774,7 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
         return assigned
 
     def _assign_rooms_for_waypoint(self, waypoint_id: str, x: float, y: float) -> None:
-        """Link a (re)stored waypoint to every room whose rectangle holds it."""
+        """Link a (re)stored waypoint to every room whose geometry holds it."""
         for node in self._graph.get_nodes():
             if node.get_type() != "room":
                 continue
@@ -732,13 +794,29 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
 
     @staticmethod
     def _room_from_node(node: Node) -> Room:
+        raw_polygon = str(_prop(node, "polygon", "[]"))
+        try:
+            polygon = json.loads(raw_polygon)
+        except (TypeError, ValueError, json.JSONDecodeError):
+            polygon = []
+        transition = float(_prop(node, "transition_width_m", 0.5))
+        if len(polygon) >= 3:
+            return Room.from_polygon(node.get_name(), polygon, transition)
         return Room(
             room_id=node.get_name(),
             min_x=float(_prop(node, "min_x", 0.0)),
             min_y=float(_prop(node, "min_y", 0.0)),
             max_x=float(_prop(node, "max_x", 0.0)),
             max_y=float(_prop(node, "max_y", 0.0)),
+            transition_width_m=transition,
         )
+
+    def _rooms(self) -> list[Room]:
+        return [
+            self._room_from_node(node)
+            for node in self._graph.get_nodes()
+            if node.get_type() == "room"
+        ]
 
     # ------------------------------------------------------------------ #
     # /get_waypoints service callback
@@ -886,6 +964,15 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
             msg.angular_error = float(payload.get("angular_error", 0.0))
             msg.image_valid = bool(payload.get("image_valid", False))
             msg.depth_valid = bool(payload.get("depth_valid", False))
+            msg.camera_room = str(payload.get("camera_room", ""))
+            msg.observation_room = str(payload.get("observation_room", ""))
+            purity = payload.get("purity")
+            msg.purity_valid = purity is not None
+            msg.purity = float(purity) if purity is not None else 0.0
+            msg.contamination_class = str(
+                payload.get("contamination_class", "unknown")
+            )
+            msg.transition_zone = bool(payload.get("transition_zone", False))
             msg.image_embedding = [float(v) for v in payload.get("image_embedding", [])]
             for detection in payload.get("detections", []):
                 item = ObjectDetection()
@@ -904,6 +991,11 @@ class KnowledgeGraphBridgeNode(LifecycleNode):
                     item.position_3d_frame = str(
                         detection.get("position_3d_frame", "")
                     )
+                map_position = detection.get("map_position", [])
+                if len(map_position) == 3:
+                    item.map_position = [float(v) for v in map_position]
+                    item.map_position_valid = True
+                item.room_id = str(detection.get("room_id", ""))
                 msg.detections.append(item)
             for relation in payload.get("relations", []):
                 item = SemanticRelation()
@@ -1173,7 +1265,11 @@ def _list_to_pose(values, pose_stamped: PoseStamped) -> None:
     pose_stamped.pose.orientation.w = float(values[6])
 
 
-def _detection_to_dict(detection: ObjectDetection) -> dict:
+def _detection_to_dict(
+    detection: ObjectDetection,
+    map_position: tuple[float, float, float] | None = None,
+    room_id: str | None = None,
+) -> dict:
     return {
         "object_id": detection.object_id,
         "class_name": detection.class_name,
@@ -1186,6 +1282,8 @@ def _detection_to_dict(detection: ObjectDetection) -> dict:
             if detection.position_3d_valid else []
         ),
         "position_3d_frame": detection.position_3d_frame,
+        "map_position": list(map_position) if map_position is not None else [],
+        "room_id": room_id or "",
     }
 
 

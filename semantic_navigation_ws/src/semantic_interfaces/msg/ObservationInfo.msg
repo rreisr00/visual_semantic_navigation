@@ -11,6 +11,12 @@ float32 measured_yaw
 float32 angular_error
 bool image_valid
 bool depth_valid
+string camera_room
+string observation_room
+float32 purity
+bool purity_valid
+string contamination_class
+bool transition_zone
 float32[] image_embedding
 ObjectDetection[] detections
 SemanticRelation[] relations
