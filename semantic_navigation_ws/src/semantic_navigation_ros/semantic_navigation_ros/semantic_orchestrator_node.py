@@ -44,6 +44,7 @@ from semantic_interfaces.srv import GetEmbedding, GetVisualFeatures, GetWaypoint
 from semantic_navigation_core.goal_validation import GridSpec, validate_goal
 from semantic_navigation_core.multiview import MultiviewConfig
 from semantic_navigation_core.query_semantics import extract_query_semantics
+from semantic_navigation_core.ranking import cosine_similarity
 from semantic_navigation_core.path_metrics import path_length_2d, spl
 from semantic_navigation_core.retrieval import (
     HybridWeights,
@@ -72,13 +73,14 @@ class SemanticOrchestratorNode(Node):
         self.declare_parameter("hybrid_embedding_weight", 0.7)
         self.declare_parameter("hybrid_object_weight", 0.3)
         self.declare_parameter("retrieval_method", "multiview_siglip")
-        self.declare_parameter("multiview_aggregation", "max_topk")
+        self.declare_parameter("multiview_aggregation", "purity_weighted_mean")
         self.declare_parameter("multiview_top_k", 3)
         self.declare_parameter("global_similarity_weight", 0.7)
         self.declare_parameter("object_match_weight", 0.2)
         self.declare_parameter("crop_similarity_weight", 0.1)
         self.declare_parameter("relation_match_weight", 0.0)
         self.declare_parameter("room_match_weight", 0.0)
+        self.declare_parameter("room_policy", "strict_filter")
         self.declare_parameter("rejection_threshold", 0.20)
         self.declare_parameter("default_top_k", 5)
         self.declare_parameter("scene_id", "aws_small_house")
@@ -110,6 +112,7 @@ class SemanticOrchestratorNode(Node):
                 delta=float(self.get_parameter("relation_match_weight").value),
                 epsilon=float(self.get_parameter("room_match_weight").value),
             ),
+            room_policy=str(self.get_parameter("room_policy").value),
         )
         self._map_lock = threading.Lock()
         self._map: OccupancyGrid | None = None
@@ -217,14 +220,15 @@ class SemanticOrchestratorNode(Node):
         )
         query_objects = list(dict.fromkeys([*query_objects, *query_hints.objects]))
 
+        semantic_query = SemanticQuery(
+            text=goal.query_text,
+            embedding=query_embedding,
+            objects=query_objects,
+            relations=query_hints.relations,
+            room=query_hints.room,
+        )
         ranked = rank_nodes(
-            SemanticQuery(
-                text=goal.query_text,
-                embedding=query_embedding,
-                objects=query_objects,
-                relations=query_hints.relations,
-                room=query_hints.room,
-            ),
+            semantic_query,
             nodes,
             self._retrieval_config,
         )
@@ -239,7 +243,9 @@ class SemanticOrchestratorNode(Node):
         result.original_node_pose = result.predicted_pose
         top_k = goal.top_k if goal.top_k > 0 else int(self.get_parameter("default_top_k").value)
         result.top_k_candidates = [
-            _candidate_message(item, self.get_clock().now().to_msg())
+            _candidate_message(
+                item, self.get_clock().now().to_msg(), semantic_query
+            )
             for item in ranked[:top_k]
         ]
         selected_candidates = ranked[:top_k]
@@ -644,6 +650,11 @@ def _to_core_node(w) -> SemanticNode:
                 if item.position_3d_valid else None
             ),
             position_3d_frame=item.position_3d_frame,
+            map_position=(
+                tuple(float(value) for value in item.map_position)
+                if item.map_position_valid else None
+            ),
+            room_id=item.room_id or None,
         ) for item in source.detections]
         relations = [SpatialRelation(
             subject=labels_by_detection_id.get(item.subject_id, item.subject_id),
@@ -664,6 +675,17 @@ def _to_core_node(w) -> SemanticNode:
             relations=relations,
             timestamp=float(source.timestamp.sec) + float(source.timestamp.nanosec) * 1e-9,
             camera_frame=source.camera_frame,
+            camera_position=(
+                source.camera_pose.pose.position.x,
+                source.camera_pose.pose.position.y,
+                source.camera_pose.pose.position.z,
+            ) if source.camera_pose.header.frame_id else None,
+            camera_orientation=(
+                source.camera_pose.pose.orientation.x,
+                source.camera_pose.pose.orientation.y,
+                source.camera_pose.pose.orientation.z,
+                source.camera_pose.pose.orientation.w,
+            ) if source.camera_pose.header.frame_id else None,
             depth_camera_frame=source.depth_camera_frame,
             depth_camera_position=(
                 source.depth_camera_pose.pose.position.x,
@@ -681,6 +703,11 @@ def _to_core_node(w) -> SemanticNode:
             angular_error=float(source.angular_error),
             image_valid=bool(source.image_valid),
             depth_valid=bool(source.depth_valid),
+            camera_room=source.camera_room or None,
+            observation_room=source.observation_room or None,
+            purity=float(source.purity) if source.purity_valid else None,
+            contamination_class=source.contamination_class or "unknown",
+            transition_zone=bool(source.transition_zone),
         ))
     if not observations:
         observations.append(Observation(
@@ -722,16 +749,52 @@ def _node_to_pose(node: SemanticNode, stamp) -> PoseStamped:
     return pose
 
 
-def _candidate_message(ranked, stamp) -> RetrievalCandidate:
+def _candidate_message(
+    ranked, stamp, query: SemanticQuery
+) -> RetrievalCandidate:
     candidate = RetrievalCandidate()
     candidate.node_id = ranked.node.node_id
     candidate.pose = _node_to_pose(ranked.node, stamp)
     candidate.score = float(ranked.score)
-    candidate.global_similarity = float(ranked.components.get("global_similarity", 0.0))
-    candidate.object_match_score = float(ranked.components.get("object_match_score", 0.0))
-    candidate.crop_similarity = float(ranked.components.get("crop_similarity", 0.0))
-    candidate.relation_match_score = float(ranked.components.get("relation_match_score", 0.0))
-    candidate.room_match_score = float(ranked.components.get("room_match_score", 0.0))
+    candidate.global_similarity = float(
+        ranked.components.get("global_similarity", 0.0)
+    )
+    candidate.object_match_score = float(
+        ranked.components.get("object_match_score", 0.0)
+    )
+    candidate.crop_similarity = float(
+        ranked.components.get("crop_similarity", 0.0)
+    )
+    candidate.relation_match_score = float(
+        ranked.components.get("relation_match_score", 0.0)
+    )
+    candidate.room_match_score = float(
+        ranked.components.get("room_match_score", 0.0)
+    )
+    query_labels = {label.strip() for label in query.objects}
+    if candidate.object_match_score > 0.0:
+        for observation in ranked.node.observations:
+            for detected in observation.objects:
+                if detected.label.strip() not in query_labels:
+                    continue
+                if (
+                    detected.object_id
+                    and detected.object_id not in candidate.matched_object_ids
+                ):
+                    candidate.matched_object_ids.append(detected.object_id)
+                if detected.label not in candidate.matched_object_labels:
+                    candidate.matched_object_labels.append(detected.label)
+    if candidate.crop_similarity > 0.0 and query.embedding is not None:
+        best_score = float("-inf")
+        for observation in ranked.node.observations:
+            for detected in observation.objects:
+                if detected.embedding is None:
+                    continue
+                score = cosine_similarity(query.embedding, detected.embedding)
+                if score > best_score:
+                    best_score = score
+                    candidate.best_crop_object_id = detected.object_id
+                    candidate.best_crop_object_label = detected.label
     return candidate
 
 

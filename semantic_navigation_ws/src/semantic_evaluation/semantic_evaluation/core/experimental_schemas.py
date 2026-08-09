@@ -137,6 +137,7 @@ class QuerySpec:
     expected_objects: list[str] = field(default_factory=list)
     expected_relations: list[SpatialRelation] = field(default_factory=list)
     is_negative: bool = False
+    target_visible: bool = True
     metadata: dict[str, Any] = field(default_factory=dict)
 
     @classmethod
@@ -189,6 +190,9 @@ class QuerySpec:
                 for value in relations
             ],
             is_negative=bool(data.get("is_negative", False)),
+            target_visible=bool(
+                data.get("target_visible", not bool(data.get("is_negative", False)))
+            ),
             metadata=dict(data.get("metadata") or {}),
         )
 

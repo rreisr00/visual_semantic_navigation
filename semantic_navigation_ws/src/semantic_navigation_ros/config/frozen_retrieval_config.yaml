@@ -5,11 +5,12 @@ preprocessing:
   image_encoding: rgb8
   local_files_only: true
 multiview_aggregation:
-  method: max_topk
+  method: purity_weighted_mean
   top_k: 3
   max_weight: 0.7
   topk_weight: 0.3
 retrieval_method: hybrid_semantic_retrieval
+room_policy: strict_filter
 retrieval_weights:
   global_similarity: 0.50
   object_match: 0.15

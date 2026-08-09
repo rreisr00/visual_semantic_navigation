@@ -8,6 +8,7 @@ from semantic_navigation_core.multiview import (
     AGG_MEAN,
     AGG_SINGLE,
     AGG_TOPK_MEAN,
+    AGG_PURITY_WEIGHTED_MEAN,
     MultiviewConfig,
     aggregate_view_scores,
     mean_embedding,
@@ -61,3 +62,15 @@ def test_mean_embedding_is_normalised():
     result = mean_embedding([np.array([1.0, 0.0]), np.array([0.0, 1.0])])
     assert np.linalg.norm(result) == pytest.approx(1.0)
     assert mean_embedding([]).size == 0
+
+
+def test_purity_weighted_descriptor_suppresses_contaminated_view():
+    query = np.array([1.0, 0.0], dtype=np.float32)
+    node = SemanticNode(node_id="n", observations=[
+        Observation("clean", embedding=np.array([1.0, 0.0]), purity=1.0),
+        Observation("noise", embedding=np.array([0.0, 1.0]), purity=0.0),
+    ])
+    score = score_node_views(
+        query, node, MultiviewConfig(method=AGG_PURITY_WEIGHTED_MEAN)
+    )
+    assert score == pytest.approx(1.0)

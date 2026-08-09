@@ -11,6 +11,7 @@ from semantic_evaluation.core.retrieval_metrics import (
     nearby_success_rate,
     negative_rejection_rate,
     rank_of_first_valid,
+    room_false_positive_rate,
     recall_at_k,
     results_to_rows,
     summarize,
@@ -59,6 +60,16 @@ def test_negative_rejection():
     assert negative_rejection_rate([neg_low, neg_high]) == 0.5
     # Negative queries never pollute the positive metrics.
     assert math.isnan(recall_at_k([neg_low, neg_high], 1))
+
+
+def test_room_false_positive_rate_uses_target_visibility():
+    rejected = case("n1", [], ["a"], negative=True)
+    rejected.target_visible = False
+    rejected.rejected = True
+    accepted = case("n2", [], ["a"], negative=True)
+    accepted.target_visible = False
+    accepted.rejected = False
+    assert room_false_positive_rate([rejected, accepted]) == 0.5
 
 
 def test_nearby_success_uses_rooms():

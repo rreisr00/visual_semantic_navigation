@@ -4,6 +4,6 @@ string text              # Input text (when use_image is false)
 bool use_image           # Set true to embed the image, false to embed the text
 ---
 # Response
-float32[] embedding      # Embedding vector returned by SigLIP 2
+float32[] embedding      # Embedding vector returned by SigLIP base
 bool success             # True if the embedding was computed successfully
 string message           # Human-readable status or error message

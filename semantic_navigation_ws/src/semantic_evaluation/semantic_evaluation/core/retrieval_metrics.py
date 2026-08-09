@@ -31,6 +31,7 @@ class RetrievalCaseResult:
     query_type: str = ""
     language: str = ""
     is_negative: bool = False
+    target_visible: bool = True
     valid_node_ids: list[str] = field(default_factory=list)
     ranked_ids: list[str] = field(default_factory=list)
     scores: list[float] = field(default_factory=list)
@@ -57,7 +58,7 @@ def rank_of_first_valid(
 
 def annotate_rank(result: RetrievalCaseResult) -> RetrievalCaseResult:
     """Fill ``rank`` in place (no-op for negative queries) and return it."""
-    if not result.is_negative:
+    if not result.is_negative and result.target_visible:
         result.rank = rank_of_first_valid(result.ranked_ids, result.valid_node_ids)
     return result
 
@@ -75,7 +76,7 @@ def apply_rejection(
 
 
 def _positives(results: Iterable[RetrievalCaseResult]) -> list[RetrievalCaseResult]:
-    return [r for r in results if not r.is_negative]
+    return [r for r in results if not r.is_negative and r.target_visible]
 
 
 def recall_at_k(results: Iterable[RetrievalCaseResult], k: int) -> float:
@@ -108,6 +109,14 @@ def negative_rejection_rate(results: Iterable[RetrievalCaseResult]) -> float:
     if not neg:
         return NAN
     return sum(1 for r in neg if r.rejected) / len(neg)
+
+
+def room_false_positive_rate(results: Iterable[RetrievalCaseResult]) -> float:
+    """Fraction of invisible targets for which a room/node was still accepted."""
+    invisible = [result for result in results if not result.target_visible]
+    if not invisible:
+        return NAN
+    return sum(1 for result in invisible if not result.rejected) / len(invisible)
 
 
 def exact_success_rate(results: Iterable[RetrievalCaseResult]) -> float:
@@ -224,6 +233,7 @@ def summarize(
             "mean_reciprocal_rank": mean_reciprocal_rank(items),
             "mean_rank_first_valid": mean_rank(items),
             "negative_rejection_rate": negative_rejection_rate(items),
+            "room_false_positive_rate": room_false_positive_rate(items),
             "mean_retrieval_latency_ms": mean_latency_s(items) * 1000.0,
         })
         if room_by_node is not None:
@@ -243,14 +253,32 @@ def results_to_rows(results: Sequence[RetrievalCaseResult]) -> list[dict]:
             "query_type": r.query_type,
             "language": r.language,
             "is_negative": r.is_negative,
+            "target_visible": r.target_visible,
+            "room_false_positive": (
+                not r.rejected if not r.target_visible else NAN
+            ),
             "valid_node_ids": "|".join(r.valid_node_ids),
             "predicted_node_id": r.top1_id,
             "rank_first_valid": r.rank,
-            "recall_at_1": bool(r.rank == 1) if not r.is_negative else NAN,
-            "recall_at_3": bool(r.rank and r.rank <= 3) if not r.is_negative else NAN,
-            "recall_at_5": bool(r.rank and r.rank <= 5) if not r.is_negative else NAN,
-            "reciprocal_rank": (1.0 / r.rank if r.rank else 0.0) if not r.is_negative else NAN,
-            "semantic_success": bool(r.rank == 1) if not r.is_negative else r.rejected,
+            "recall_at_1": (
+                bool(r.rank == 1) if not r.is_negative and r.target_visible else NAN
+            ),
+            "recall_at_3": (
+                bool(r.rank and r.rank <= 3)
+                if not r.is_negative and r.target_visible else NAN
+            ),
+            "recall_at_5": (
+                bool(r.rank and r.rank <= 5)
+                if not r.is_negative and r.target_visible else NAN
+            ),
+            "reciprocal_rank": (
+                (1.0 / r.rank if r.rank else 0.0)
+                if not r.is_negative and r.target_visible else NAN
+            ),
+            "semantic_success": (
+                bool(r.rank == 1)
+                if not r.is_negative and r.target_visible else r.rejected
+            ),
             "rejected": r.rejected,
             "retrieval_latency_ms": r.latency_s * 1000.0,
             "global_similarity": r.score_components.get("global_similarity", NAN),

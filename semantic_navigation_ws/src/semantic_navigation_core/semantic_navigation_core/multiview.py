@@ -21,8 +21,10 @@ AGG_MEAN = "mean"              # mean over all views
 AGG_MAX = "max"                # best view
 AGG_TOPK_MEAN = "topk_mean"    # mean of the K best views
 AGG_MAX_TOPK = "max_topk"      # max_weight*max + topk_weight*mean(top-K)
+AGG_PURITY_WEIGHTED_MEAN = "purity_weighted_mean"
 SUPPORTED_AGGREGATIONS: tuple[str, ...] = (
     AGG_SINGLE, AGG_MEAN, AGG_MAX, AGG_TOPK_MEAN, AGG_MAX_TOPK,
+    AGG_PURITY_WEIGHTED_MEAN,
 )
 
 
@@ -77,6 +79,12 @@ def score_node_views(
     config: MultiviewConfig,
 ) -> float:
     """Query↔node score: per-view cosine similarities, then aggregation."""
+    if config.method == AGG_PURITY_WEIGHTED_MEAN:
+        descriptor = purity_weighted_node_embedding(node)
+        return (
+            cosine_similarity(query_embedding, descriptor)
+            if descriptor.size else 0.0
+        )
     view_scores = [
         cosine_similarity(query_embedding, emb) for emb in node.embeddings()
     ]
@@ -98,3 +106,41 @@ def mean_embedding(embeddings: Sequence[np.ndarray]) -> np.ndarray:
     if norm == 0.0:
         return mean
     return mean / norm
+
+
+def weighted_mean_embedding(
+    embeddings: Sequence[np.ndarray], weights: Sequence[float]
+) -> np.ndarray:
+    """L2-normalised weighted descriptor, ignoring non-positive evidence."""
+    if len(embeddings) != len(weights):
+        raise ValueError("embeddings and weights must have the same length")
+    usable = [
+        (np.asarray(embedding, dtype=np.float32), max(0.0, float(weight)))
+        for embedding, weight in zip(embeddings, weights)
+        if np.asarray(embedding).size and float(weight) > 0.0
+    ]
+    if not usable:
+        return np.array([], dtype=np.float32)
+    dimensions = {embedding.shape for embedding, _weight in usable}
+    if len(dimensions) != 1:
+        raise ValueError("all embeddings must have the same shape")
+    total = sum(weight for _embedding, weight in usable)
+    mean = sum(embedding * weight for embedding, weight in usable) / total
+    norm = float(np.linalg.norm(mean))
+    return mean if norm == 0.0 else mean / norm
+
+
+def purity_weighted_node_embedding(node: SemanticNode) -> np.ndarray:
+    """Aggregate a node giving clean views more influence than noisy views."""
+    observations = [
+        observation for observation in node.observations
+        if observation.embedding is not None
+        and np.asarray(observation.embedding).size > 0
+    ]
+    descriptor = weighted_mean_embedding(
+        [observation.embedding for observation in observations],
+        [observation.purity_weight for observation in observations],
+    )
+    return descriptor if descriptor.size else mean_embedding(
+        [observation.embedding for observation in observations]
+    )

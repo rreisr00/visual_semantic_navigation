@@ -35,6 +35,8 @@ CSV_COLUMNS: list[str] = [
     "nearby_valid_nodes",
     "rank_first_valid",
     "is_negative",
+    "target_visible",
+    "room_false_positive",
     "accepted",
     "semantic_success",
     "nearby_semantic_success",
@@ -102,6 +104,11 @@ def case_to_row(result: TestCaseResult) -> dict[str, str]:
         "nearby_valid_nodes": "|".join(result.nearby_valid_nodes),
         "rank_first_valid": _fmt(result.rank_first_valid),
         "is_negative": "1" if result.is_negative else "0",
+        "target_visible": "1" if result.target_visible else "0",
+        "room_false_positive": (
+            "1" if not result.target_visible and result.accepted
+            else "0" if not result.target_visible else ""
+        ),
         "accepted": "1" if result.accepted else "0",
         "semantic_success": "1" if result.semantic_success else "0",
         "nearby_semantic_success": (
@@ -164,6 +171,8 @@ def aggregate_to_row(agg: AggregateResult) -> dict[str, str]:
         "nearby_valid_nodes": "",
         "rank_first_valid": "",
         "is_negative": "",
+        "target_visible": "",
+        "room_false_positive": _fmt(agg.room_false_positive_rate),
         "accepted": "",
         "semantic_success": "",
         "nearby_semantic_success": "",

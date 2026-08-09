@@ -102,6 +102,7 @@ def run_method(
             query_type=p.query.query_type,
             language=p.query.language,
             is_negative=p.query.is_negative,
+            target_visible=p.query.target_visible,
             valid_node_ids=list(p.valid_node_ids),
             ranked_ids=[r.node.node_id for r in ranked],
             scores=[float(r.score) for r in ranked],

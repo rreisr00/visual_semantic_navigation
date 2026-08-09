@@ -44,6 +44,12 @@ METHOD_MULTIVIEW_SIGLIP = "multiview_siglip"
 METHOD_SIGLIP_WITH_OBJECTS = "siglip_with_objects"
 METHOD_SIGLIP_WITH_OBJECTS_AND_RELATIONS = "siglip_with_objects_and_relations"
 METHOD_HYBRID_SEMANTIC_RETRIEVAL = "hybrid_semantic_retrieval"
+ROOM_POLICY_NONE = "none"
+ROOM_POLICY_ADDITIVE = "additive"
+ROOM_POLICY_STRICT_FILTER = "strict_filter"
+SUPPORTED_ROOM_POLICIES = (
+    ROOM_POLICY_NONE, ROOM_POLICY_ADDITIVE, ROOM_POLICY_STRICT_FILTER,
+)
 
 # Source-compatible constant names; their values use the descriptive contract.
 METHOD_BASELINE_RANDOM = METHOD_RANDOM_BASELINE
@@ -118,11 +124,17 @@ class RetrievalConfig:
     multiview: MultiviewConfig = field(default_factory=MultiviewConfig)
     weights: HybridWeights = field(default_factory=HybridWeights)
     seed: int = 42
+    room_policy: str = ROOM_POLICY_ADDITIVE
 
     def __post_init__(self) -> None:
         if self.method not in SUPPORTED_METHODS:
             raise ValueError(
                 f"method must be one of {SUPPORTED_METHODS}, got {self.method!r}"
+            )
+        if self.room_policy not in SUPPORTED_ROOM_POLICIES:
+            raise ValueError(
+                f"room_policy must be one of {SUPPORTED_ROOM_POLICIES}, "
+                f"got {self.room_policy!r}"
             )
 
 
@@ -198,17 +210,22 @@ def _hybrid_components(
     comps["object_match_score"] = object_score(query.objects, node) if w.beta else 0.0
     comps["crop_similarity"] = crop_score(query.embedding, node) if w.gamma else 0.0
     comps["relation_match_score"] = relation_score(query.relations, node) if w.delta else 0.0
-    comps["room_match_score"] = room_score(query.room, node) if w.epsilon else 0.0
+    comps["room_match_score"] = room_score(query.room, node)
     return comps
 
 
-def _combine(comps: dict[str, float], w: HybridWeights) -> float:
+def _combine(
+    comps: dict[str, float], w: HybridWeights, room_policy: str
+) -> float:
     return (
         w.alpha * comps["global_similarity"]
         + w.beta * comps["object_match_score"]
         + w.gamma * comps["crop_similarity"]
         + w.delta * comps["relation_match_score"]
-        + w.epsilon * comps["room_match_score"]
+        + (
+            w.epsilon * comps["room_match_score"]
+            if room_policy == ROOM_POLICY_ADDITIVE else 0.0
+        )
     )
 
 
@@ -235,20 +252,23 @@ def rank_nodes(
         ``RankedNode`` list sorted high→low with per-component breakdowns.
     """
     method = config.method
+    candidates = nodes
+    if config.room_policy == ROOM_POLICY_STRICT_FILTER and query.room:
+        candidates = [node for node in nodes if room_score(query.room, node) == 1.0]
 
     if method == METHOD_BASELINE_RANDOM:
         rng = rng or np.random.default_rng(config.seed)
-        scores = rng.random(len(nodes))
+        scores = rng.random(len(candidates))
         ranked = [
             RankedNode(node=n, score=float(s), components={"random": float(s)})
-            for n, s in zip(nodes, scores)
+            for n, s in zip(candidates, scores)
         ]
     elif method == METHOD_BASELINE_NEAREST:
         if query.position is None:
             raise ValueError("baseline_nearest requires query.position=(x, y)")
         qx, qy = query.position
         ranked = []
-        for n in nodes:
+        for n in candidates:
             dist = float(np.hypot(n.position[0] - qx, n.position[1] - qy))
             # Negative distance so "higher score = better" holds like elsewhere.
             ranked.append(
@@ -261,7 +281,7 @@ def rank_nodes(
                 score=room_score(query.room, n),
                 components={"room": room_score(query.room, n)},
             )
-            for n in nodes
+            for n in candidates
         ]
     elif method in (METHOD_SIGLIP_SINGLE, METHOD_SIGLIP_MULTIVIEW):
         # siglip_single_view forces the single-view aggregation → parity
@@ -273,7 +293,7 @@ def rank_nodes(
             else config.multiview
         )
         ranked = []
-        for n in nodes:
+        for n in candidates:
             if not n.embeddings():
                 continue
             score = score_node_views(query.embedding, n, multiview)
@@ -282,13 +302,15 @@ def rank_nodes(
             )
     else:  # objects / relations / full — hybrid with the configured weights
         ranked = []
-        for n in nodes:
+        for n in candidates:
             if not n.embeddings():
                 continue
             comps = _hybrid_components(query, n, config)
             ranked.append(
                 RankedNode(
-                    node=n, score=_combine(comps, config.weights), components=comps
+                    node=n,
+                    score=_combine(comps, config.weights, config.room_policy),
+                    components=comps,
                 )
             )
 

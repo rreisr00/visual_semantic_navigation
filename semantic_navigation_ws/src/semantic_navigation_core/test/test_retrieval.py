@@ -17,6 +17,7 @@ from semantic_navigation_core.retrieval import (
     default_weights,
     object_score,
     rank_nodes,
+    ROOM_POLICY_STRICT_FILTER,
 )
 from semantic_navigation_core.multiview import AGG_MAX, MultiviewConfig
 from semantic_navigation_core.types import (
@@ -89,6 +90,16 @@ def test_baseline_room_prefers_matching_room():
     ranked = rank_nodes(SemanticQuery(room="cocina"), NODES, config)
     assert ranked[0].node.node_id == "a"
     assert ranked[0].score == 1.0
+
+
+def test_strict_room_policy_discards_other_rooms():
+    config = RetrievalConfig(
+        method=METHOD_SIGLIP_SINGLE, room_policy=ROOM_POLICY_STRICT_FILTER
+    )
+    ranked = rank_nodes(
+        SemanticQuery(embedding=QUERY_EMB, room="salon"), NODES, config
+    )
+    assert [result.node.node_id for result in ranked] == ["b"]
 
 
 def test_object_score_confidence_weighted():

@@ -89,6 +89,7 @@ class TestCaseResult:
     nearby_valid_nodes: list[str] = field(default_factory=list)
     rank_first_valid: int | None = None
     is_negative: bool = False
+    target_visible: bool = True
     accepted: bool = False
     semantic_success: bool = False
     nearby_semantic_success: bool = False

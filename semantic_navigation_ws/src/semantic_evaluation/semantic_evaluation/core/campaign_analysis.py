@@ -20,13 +20,13 @@ CANONICAL_CASE_COLUMNS = [
     "rank_first_valid", "recall_at_1", "recall_at_3", "recall_at_5",
     "reciprocal_rank", "semantic_success", "nearby_semantic_success",
     "navigation_success", "end_to_end_success", "retrieval_latency_ms",
-    "navigation_time_s", "failure_type",
+    "navigation_time_s", "target_visible", "room_false_positive", "failure_type",
 ]
 
 _BOOLEAN_COLUMNS = {
     "recall_at_1", "recall_at_3", "recall_at_5", "semantic_success",
     "nearby_semantic_success", "navigation_success", "end_to_end_success",
-    "is_negative", "rejected",
+    "is_negative", "rejected", "target_visible", "room_false_positive",
 }
 _NUMERIC_COLUMNS = {
     "rank_first_valid", "reciprocal_rank", "retrieval_latency_ms",
@@ -137,14 +137,18 @@ def validate_campaign_frame(
                 f"{source}: missing valid_node_ids (or legacy expected_node_id)"
             )
     if data["query_id"].duplicated().any():
-        duplicates = sorted(data.loc[data["query_id"].duplicated(), "query_id"].astype(str).unique())
+        duplicates = sorted(
+            data.loc[data["query_id"].duplicated(), "query_id"].astype(str).unique()
+        )
         issues.append(f"{source}: duplicate query ids {duplicates}")
     data["valid_node_ids"] = data["valid_node_ids"].map(_valid_ids)
     data["predicted_node_id"] = data["predicted_node_id"].fillna("").astype(str)
     existing_rank = data["rank_first_valid"] if "rank_first_valid" in data else [None] * len(data)
     data["rank_first_valid"] = [
         _rank(predicted, valid, rank)
-        for predicted, valid, rank in zip(data["predicted_node_id"], data["valid_node_ids"], existing_rank)
+        for predicted, valid, rank in zip(
+            data["predicted_node_id"], data["valid_node_ids"], existing_rank
+        )
     ]
     data["recall_at_1"] = data["rank_first_valid"].map(lambda value: value == 1)
     data["recall_at_3"] = data["rank_first_valid"].map(
@@ -181,8 +185,19 @@ def validate_campaign_frame(
             pd.to_numeric(data["navigation_s"], errors="coerce")
             if "navigation_s" in data else np.nan
         )
+    if "target_visible" not in data:
+        data["target_visible"] = (
+            data["is_negative"].map(lambda value: not bool(_bool_value(value)))
+            if "is_negative" in data else True
+        )
     for column in _BOOLEAN_COLUMNS & set(data.columns):
         data[column] = data[column].map(_bool_value)
+    if "room_false_positive" not in data:
+        accepted = data["accepted"] if "accepted" in data else [False] * len(data)
+        data["room_false_positive"] = [
+            bool(_bool_value(value)) if visible is False else None
+            for visible, value in zip(data["target_visible"], accepted)
+        ]
     for column in _NUMERIC_COLUMNS & set(data.columns):
         data[column] = pd.to_numeric(data[column], errors="coerce")
     data["end_to_end_success"] = [
@@ -266,7 +281,10 @@ def _summary(
     seed: int,
 ) -> pd.DataFrame:
     rows: list[dict[str, Any]] = []
-    metrics = ["semantic_success", "navigation_success", "end_to_end_success"]
+    metrics = [
+        "semantic_success", "navigation_success", "end_to_end_success",
+        "room_false_positive",
+    ]
     for keys, group in frame.groupby(group_columns, dropna=False):
         if not isinstance(keys, tuple):
             keys = (keys,)

@@ -6,4 +6,7 @@ float32 object_match_score
 float32 crop_similarity
 float32 relation_match_score
 float32 room_match_score
-
+string[] matched_object_ids
+string[] matched_object_labels
+string best_crop_object_id
+string best_crop_object_label

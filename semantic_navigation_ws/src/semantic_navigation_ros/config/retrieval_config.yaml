@@ -2,13 +2,14 @@ semantic_orchestrator:
   ros__parameters:
     retrieval_mode: "siglip_yolo"
     retrieval_method: "hybrid_semantic_retrieval"
-    multiview_aggregation: "max_topk"
+    multiview_aggregation: "purity_weighted_mean"
     multiview_top_k: 3
     global_similarity_weight: 0.50
     object_match_weight: 0.15
     crop_similarity_weight: 0.10
     relation_match_weight: 0.10
     room_match_weight: 0.15
+    room_policy: "strict_filter"
     rejection_threshold: 0.12
     default_top_k: 5
     scene_id: "aws_small_house"
