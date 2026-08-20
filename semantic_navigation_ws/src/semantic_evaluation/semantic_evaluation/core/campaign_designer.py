@@ -31,6 +31,9 @@ class OccupancyMap:
     origin_x: float
     origin_y: float
     origin_yaw: float = 0.0
+    negate: bool = False
+    occupied_thresh: float = 0.65
+    free_thresh: float = 0.196
 
     def world_to_pixel(
         self, x: float, y: float, image_height: int
@@ -43,6 +46,25 @@ class OccupancyMap:
         local_x = cosine * dx + sine * dy
         local_y = -sine * dx + cosine * dy
         return local_x / self.resolution, image_height - local_y / self.resolution
+
+    def pixel_to_world(
+        self, pixel_x: float, pixel_y: float, image_height: int
+    ) -> tuple[float, float]:
+        """Convert an occupancy-image pixel into coordinates in the map frame."""
+        local_x = float(pixel_x) * self.resolution
+        local_y = (float(image_height) - float(pixel_y)) * self.resolution
+        cosine = math.cos(self.origin_yaw)
+        sine = math.sin(self.origin_yaw)
+        return (
+            self.origin_x + cosine * local_x - sine * local_y,
+            self.origin_y + sine * local_x + cosine * local_y,
+        )
+
+    def pixel_is_free(self, red: int, green: int, blue: int) -> bool:
+        """Interpret an RGB occupancy pixel using the map-server thresholds."""
+        grayscale = (float(red) + float(green) + float(blue)) / (3.0 * 255.0)
+        occupied_probability = grayscale if self.negate else 1.0 - grayscale
+        return occupied_probability < self.free_thresh
 
 
 @dataclass
@@ -93,6 +115,9 @@ def load_occupancy_map(path: str) -> OccupancyMap:
         origin_x=float(origin[0]),
         origin_y=float(origin[1]),
         origin_yaw=float(origin[2]),
+        negate=bool(int(data.get("negate", 0))),
+        occupied_thresh=float(data.get("occupied_thresh", 0.65)),
+        free_thresh=float(data.get("free_thresh", 0.196)),
     )
 
 

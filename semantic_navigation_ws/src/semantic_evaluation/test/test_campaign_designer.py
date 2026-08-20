@@ -65,6 +65,29 @@ def test_world_to_pixel_accounts_for_origin_scale_and_y_flip():
     assert metadata.world_to_pixel(1.0, 2.0, 20) == (4.0, 12.0)
 
 
+def test_pixel_to_world_is_inverse_with_rotated_map():
+    metadata = OccupancyMap(
+        'map.yaml', 'map.pgm', 0.2, -3.0, 1.5, origin_yaw=0.35
+    )
+    pixel = metadata.world_to_pixel(2.4, -0.7, 240)
+
+    world = metadata.pixel_to_world(*pixel, image_height=240)
+
+    assert world == pytest.approx((2.4, -0.7))
+
+
+def test_occupancy_pixel_classification_obeys_negate_and_free_threshold():
+    normal = OccupancyMap('map.yaml', 'map.pgm', 0.2, 0.0, 0.0)
+    negated = OccupancyMap(
+        'map.yaml', 'map.pgm', 0.2, 0.0, 0.0, negate=True
+    )
+
+    assert normal.pixel_is_free(255, 255, 255)
+    assert not normal.pixel_is_free(0, 0, 0)
+    assert negated.pixel_is_free(0, 0, 0)
+    assert not negated.pixel_is_free(255, 255, 255)
+
+
 def test_workspace_creates_compatible_query_and_ground_truth_files(tmp_path):
     workspace = _workspace(tmp_path)
     workspace.queries['cases'].append({
