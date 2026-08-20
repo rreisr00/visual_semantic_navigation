@@ -3,10 +3,10 @@ import os
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from python_qt_binding.QtCore import QEvent, Qt
-from python_qt_binding.QtGui import QKeyEvent
+from python_qt_binding.QtGui import QKeyEvent, QPixmap
 from python_qt_binding.QtWidgets import QApplication, QWidget
 
-from semantic_evaluation.operator_gui import ArrowKeyFilter
+from semantic_evaluation.operator_gui import ArrowKeyFilter, _SceneTeleportView
 
 
 class _ShortcutWindow(QWidget):
@@ -68,4 +68,21 @@ def test_arrow_keys_keep_press_and_release_semantics():
     assert event_filter.eventFilter(window, pressed)
     assert event_filter.eventFilter(window, released)
     assert window.direction_events == [('forward', True), ('forward', False)]
+    assert application is QApplication.instance()
+
+
+def test_scene_teleport_view_draws_map_and_independent_markers():
+    application = _application()
+    selected = []
+    view = _SceneTeleportView(lambda x, y: selected.append((x, y)))
+    pixmap = QPixmap(120, 80)
+    pixmap.fill(Qt.white)
+
+    view.set_map(pixmap)
+    view.set_robot(15.0, 20.0)
+    view.set_destination(70.0, 55.0, warning=False)
+
+    assert view.map_size == (120, 80)
+    assert len(view.scene().items()) == 3
+    assert selected == []
     assert application is QApplication.instance()

@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import queue
 import signal
@@ -13,10 +14,18 @@ from typing import Any
 
 from action_msgs.msg import GoalStatus
 from cv_bridge import CvBridge
-from geometry_msgs.msg import Point, Point32, PointStamped, PoseStamped, Twist, TwistStamped
+from geometry_msgs.msg import (
+    Point,
+    Point32,
+    PointStamped,
+    PoseStamped,
+    PoseWithCovarianceStamped,
+    Twist,
+    TwistStamped,
+)
 from nav2_msgs.action import NavigateToPose
 from python_qt_binding.QtCore import QEvent, QObject, Qt, QTimer
-from python_qt_binding.QtGui import QImage, QPixmap
+from python_qt_binding.QtGui import QBrush, QColor, QImage, QPainter, QPen, QPixmap
 from python_qt_binding.QtWidgets import (
     QAbstractSpinBox,
     QApplication,
@@ -24,6 +33,9 @@ from python_qt_binding.QtWidgets import (
     QComboBox,
     QDoubleSpinBox,
     QFormLayout,
+    QGraphicsEllipseItem,
+    QGraphicsScene,
+    QGraphicsView,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -51,6 +63,9 @@ from rclpy.qos import (
     QoSProfile,
 )
 from rclpy.time import Time
+from ros_gz_interfaces.msg import Entity
+from ros_gz_interfaces.srv import SetEntityPose
+from semantic_evaluation.core.campaign_designer import load_occupancy_map
 from semantic_evaluation.core.operator_gui_logic import (
     motion_from_directions,
     normalized_room_bounds,
@@ -155,6 +170,78 @@ QLabel#shortcutBadge {
 """
 
 
+class _SceneTeleportView(QGraphicsView):
+    """Clickable occupancy map with separate robot and destination markers."""
+
+    def __init__(self, selected_callback) -> None:
+        self._scene = QGraphicsScene()
+        super().__init__(self._scene)
+        self._selected_callback = selected_callback
+        self._map_size = (0, 0)
+        self._destination: QGraphicsEllipseItem | None = None
+        self._robot: QGraphicsEllipseItem | None = None
+        self.setRenderHint(QPainter.Antialiasing, True)
+        self.setMinimumSize(360, 260)
+        self.setToolTip(
+            'Clic izquierdo: elegir destino. Rueda: zoom. '
+            'Use las barras para desplazarse.'
+        )
+
+    @property
+    def map_size(self) -> tuple[int, int]:
+        return self._map_size
+
+    def set_map(self, pixmap: QPixmap) -> None:
+        """Replace the occupancy image and fit it in the current viewport."""
+        self._scene.clear()
+        self._destination = None
+        self._robot = None
+        self._map_size = (pixmap.width(), pixmap.height())
+        self._scene.addPixmap(pixmap).setZValue(-10.0)
+        self._scene.setSceneRect(0.0, 0.0, pixmap.width(), pixmap.height())
+        QTimer.singleShot(0, self.fit_map)
+
+    def fit_map(self) -> None:
+        if self._map_size != (0, 0):
+            self.fitInView(self._scene.sceneRect(), Qt.KeepAspectRatio)
+
+    def set_destination(self, x: float, y: float, *, warning: bool) -> None:
+        if self._destination is not None:
+            self._scene.removeItem(self._destination)
+        colour = QColor('#ff9f43' if warning else '#34d399')
+        self._destination = self._scene.addEllipse(
+            x - 7.0, y - 7.0, 14.0, 14.0,
+            QPen(QColor('white'), 2.0), QBrush(colour),
+        )
+        self._destination.setZValue(5.0)
+        self._destination.setToolTip('Destino de teletransporte')
+
+    def set_robot(self, x: float, y: float) -> None:
+        if self._robot is None:
+            self._robot = self._scene.addEllipse(
+                -6.0, -6.0, 12.0, 12.0,
+                QPen(QColor('white'), 1.5), QBrush(QColor('#3b82f6')),
+            )
+            self._robot.setZValue(4.0)
+            self._robot.setToolTip('Posición actual del robot')
+        self._robot.setRect(x - 6.0, y - 6.0, 12.0, 12.0)
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802
+        if event.button() == Qt.LeftButton and self._map_size != (0, 0):
+            point = self.mapToScene(event.pos())
+            width, height = self._map_size
+            if 0.0 <= point.x() < width and 0.0 <= point.y() < height:
+                self._selected_callback(point.x(), point.y())
+                event.accept()
+                return
+        super().mousePressEvent(event)
+
+    def wheelEvent(self, event) -> None:  # noqa: N802
+        factor = 1.18 if event.angleDelta().y() > 0 else 1.0 / 1.18
+        self.scale(factor, factor)
+        event.accept()
+
+
 class SemanticOperatorNode(Node):
     """ROS-facing backend used by the Qt operator window."""
 
@@ -181,6 +268,8 @@ class SemanticOperatorNode(Node):
         self.declare_parameter('campaign_output_dir', '')
         self.declare_parameter('robot_entity_name', 'semantic_robot')
         self.declare_parameter('world_name', 'default')
+        self.declare_parameter('initial_pose_topic', '/initialpose')
+        self.declare_parameter('teleport_height', 0.01)
         self.declare_parameter('frozen_config_hash', '')
         self.declare_parameter('frozen_config_path', '')
         self.declare_parameter(
@@ -244,6 +333,9 @@ class SemanticOperatorNode(Node):
             self.get_parameter('robot_entity_name').value
         )
         self.world_name = str(self.get_parameter('world_name').value)
+        self.teleport_height = float(
+            self.get_parameter('teleport_height').value
+        )
         self.frozen_config_hash = str(
             self.get_parameter('frozen_config_hash').value
         )
@@ -281,6 +373,8 @@ class SemanticOperatorNode(Node):
         self._voice_transcriber = None
         self._voice_microphone = None
         self._rooms_lock = threading.Lock()
+        self._teleport_lock = threading.Lock()
+        self._teleport_pending = False
 
         stamped = bool(self.get_parameter('stamped_cmd_vel').value)
         self._stamped_cmd_vel = stamped
@@ -319,6 +413,16 @@ class SemanticOperatorNode(Node):
         self._room_client = self.create_client(
             AddRoom,
             str(self.get_parameter('add_room_service').value),
+        )
+        self._teleport_client = self.create_client(
+            SetEntityPose,
+            f'/world/{self.world_name}/set_pose',
+        )
+        initial_pose_qos = QoSProfile(depth=10)
+        self._initial_pose_pub = self.create_publisher(
+            PoseWithCovarianceStamped,
+            str(self.get_parameter('initial_pose_topic').value),
+            initial_pose_qos,
         )
         marker_qos = QoSProfile(
             depth=1,
@@ -395,6 +499,11 @@ class SemanticOperatorNode(Node):
             return self._latest_clicked_point
 
     def current_position(self) -> tuple[float, float] | None:
+        pose = self.current_pose()
+        return None if pose is None else pose[:2]
+
+    def current_pose(self) -> tuple[float, float, float] | None:
+        """Return map-frame x, y and yaw for the current robot transform."""
         try:
             transform = self._tf_buffer.lookup_transform(
                 self._map_frame,
@@ -404,7 +513,106 @@ class SemanticOperatorNode(Node):
         except TransformException:
             return None
         translation = transform.transform.translation
-        return float(translation.x), float(translation.y)
+        rotation = transform.transform.rotation
+        yaw = math.atan2(
+            2.0 * (rotation.w * rotation.z + rotation.x * rotation.y),
+            1.0 - 2.0 * (rotation.y * rotation.y + rotation.z * rotation.z),
+        )
+        return float(translation.x), float(translation.y), yaw
+
+    @property
+    def teleport_pending(self) -> bool:
+        with self._teleport_lock:
+            return self._teleport_pending
+
+    def teleport_robot(self, x: float, y: float, yaw: float) -> bool:
+        """Move the Gazebo model and publish the matching AMCL initial pose."""
+        if self.capture_active:
+            self.push_event(
+                'error',
+                message='Cancela la captura antes de teletransportar el robot.',
+            )
+            return False
+        with self._teleport_lock:
+            if self._teleport_pending:
+                self.push_event(
+                    'error', message='Ya hay un teletransporte en curso.'
+                )
+                return False
+            if not self._teleport_client.service_is_ready():
+                self.push_event(
+                    'error',
+                    message=(
+                        f'El servicio /world/{self.world_name}/set_pose '
+                        'no está disponible.'
+                    ),
+                )
+                return False
+            self._teleport_pending = True
+
+        request = SetEntityPose.Request()
+        request.entity.name = self.robot_entity_name
+        request.entity.type = Entity.MODEL
+        request.pose.position.x = float(x)
+        request.pose.position.y = float(y)
+        request.pose.position.z = self.teleport_height
+        request.pose.orientation.z = math.sin(float(yaw) / 2.0)
+        request.pose.orientation.w = math.cos(float(yaw) / 2.0)
+        self.stop()
+        self.push_event(
+            'teleport_started',
+            message=f'Teletransportando a ({x:.2f}, {y:.2f})…',
+        )
+        future = self._teleport_client.call_async(request)
+        future.add_done_callback(
+            lambda completed: self._on_teleport_result(completed, request)
+        )
+        return True
+
+    def _on_teleport_result(self, future, request: SetEntityPose.Request) -> None:
+        with self._teleport_lock:
+            self._teleport_pending = False
+        try:
+            response = future.result()
+        except Exception as exc:  # noqa: BLE001
+            self.push_event(
+                'teleport_result', success=False,
+                message=f'Falló el teletransporte: {exc}',
+            )
+            return
+        if response is None or not response.success:
+            self.push_event(
+                'teleport_result', success=False,
+                message='Gazebo rechazó el teletransporte.',
+            )
+            return
+
+        initial = PoseWithCovarianceStamped()
+        initial.header.frame_id = self._map_frame
+        initial.header.stamp = self.get_clock().now().to_msg()
+        initial.pose.pose = request.pose
+        initial.pose.covariance[0] = 0.25
+        initial.pose.covariance[7] = 0.25
+        initial.pose.covariance[35] = 0.0685
+        # AMCL can miss a single initial-pose sample while its lifecycle node
+        # is transitioning.  Repeating it is cheap and mirrors the campaign
+        # runner's reset behaviour without blocking the ROS executor thread.
+        for _ in range(3):
+            self._initial_pose_pub.publish(initial)
+        yaw = 2.0 * math.atan2(
+            request.pose.orientation.z, request.pose.orientation.w
+        )
+        self.push_event(
+            'teleport_result',
+            success=True,
+            x=float(request.pose.position.x),
+            y=float(request.pose.position.y),
+            yaw=yaw,
+            message=(
+                f'Robot teletransportado a ({request.pose.position.x:.2f}, '
+                f'{request.pose.position.y:.2f}); AMCL resincronizado.'
+            ),
+        )
 
     def publish_motion(self, linear: float, angular: float) -> None:
         twist = Twist()
@@ -1079,6 +1287,11 @@ class SemanticOperatorWindow(QMainWindow):
         self._directions: set[str] = set()
         self._last_motion = (0.0, 0.0)
         self._current_position: tuple[float, float] | None = None
+        self._current_yaw = 0.0
+        self._teleport_map_metadata = None
+        self._teleport_image = QImage()
+        self._selected_teleport: tuple[float, float] | None = None
+        self._selected_teleport_warning = False
         self._space_voice_active = False
         self._key_filter = ArrowKeyFilter(self)
 
@@ -1158,13 +1371,23 @@ class SemanticOperatorWindow(QMainWindow):
 
         camera_panel = QWidget()
         camera_layout = QVBoxLayout(camera_panel)
+        construction_views = QTabWidget()
+        construction_views.setDocumentMode(True)
+        camera_layout.addWidget(construction_views, stretch=1)
+
+        camera_page = QWidget()
+        camera_page_layout = QVBoxLayout(camera_page)
         self.camera_label = QLabel(f'Esperando {self._node.camera_topic}…')
         self.camera_label.setAlignment(Qt.AlignCenter)
         self.camera_label.setMinimumSize(320, 240)
         self.camera_label.setStyleSheet(
             'background: #17191c; color: #b8bec7; border: 1px solid #3b4048;'
         )
-        camera_layout.addWidget(self.camera_label, stretch=1)
+        camera_page_layout.addWidget(self.camera_label, stretch=1)
+        construction_views.addTab(camera_page, 'Cámara RGB-D')
+        construction_views.addTab(
+            self._teleport_map_page(), 'Mapa y teletransporte'
+        )
         self.pose_label = QLabel('Pose map → base_link: no disponible')
         camera_layout.addWidget(self.pose_label)
         root.addWidget(camera_panel)
@@ -1246,6 +1469,131 @@ class SemanticOperatorWindow(QMainWindow):
             self.campaign_designer, 'Diseño y evaluación de campañas'
         )
         self.main_tabs.currentChanged.connect(self._tab_changed)
+
+    def _teleport_map_page(self) -> QWidget:
+        page = QWidget()
+        layout = QVBoxLayout(page)
+        intro = QLabel(
+            'Seleccione directamente un punto del mapa. Azul: robot; verde: '
+            'destino en zona aparentemente libre; naranja: revise el destino.'
+        )
+        intro.setWordWrap(True)
+        intro.setObjectName('sectionHint')
+        layout.addWidget(intro)
+
+        self.teleport_map_view = _SceneTeleportView(
+            self._map_destination_selected
+        )
+        layout.addWidget(self.teleport_map_view, stretch=1)
+        self.teleport_selection = QLabel('No hay un destino seleccionado')
+        self.teleport_selection.setWordWrap(True)
+        layout.addWidget(self.teleport_selection)
+
+        controls = QHBoxLayout()
+        self.teleport_keep_yaw = QCheckBox('Mantener orientación actual')
+        self.teleport_keep_yaw.setChecked(True)
+        controls.addWidget(self.teleport_keep_yaw)
+        controls.addWidget(QLabel('Yaw'))
+        self.teleport_yaw = QDoubleSpinBox()
+        self.teleport_yaw.setRange(-180.0, 180.0)
+        self.teleport_yaw.setDecimals(1)
+        self.teleport_yaw.setSuffix('°')
+        self.teleport_yaw.setEnabled(False)
+        self.teleport_keep_yaw.toggled.connect(
+            lambda checked: self.teleport_yaw.setEnabled(not checked)
+        )
+        controls.addWidget(self.teleport_yaw)
+        fit = QPushButton('Ajustar mapa')
+        fit.clicked.connect(self.teleport_map_view.fit_map)
+        controls.addWidget(fit)
+        self.teleport_button = QPushButton('Teletransportar…')
+        self.teleport_button.setObjectName('dangerButton')
+        self.teleport_button.setEnabled(False)
+        self.teleport_button.clicked.connect(self._confirm_teleport)
+        controls.addWidget(self.teleport_button)
+        layout.addLayout(controls)
+
+        try:
+            metadata = load_occupancy_map(self._node.map_file)
+            pixmap = QPixmap(metadata.image_path)
+            image = QImage(metadata.image_path)
+            if pixmap.isNull() or image.isNull():
+                raise ValueError(f'Qt no pudo abrir {metadata.image_path}')
+            self._teleport_map_metadata = metadata
+            self._teleport_image = image
+            self.teleport_map_view.set_map(pixmap)
+        except Exception as exc:  # noqa: BLE001
+            self.teleport_selection.setText(
+                f'No se pudo cargar el mapa de la escena: {exc}'
+            )
+            self.teleport_map_view.setEnabled(False)
+        return page
+
+    def _map_destination_selected(
+        self, pixel_x: float, pixel_y: float
+    ) -> None:
+        metadata = self._teleport_map_metadata
+        if metadata is None or self._teleport_image.isNull():
+            return
+        image_x = min(
+            self._teleport_image.width() - 1, max(0, int(pixel_x))
+        )
+        image_y = min(
+            self._teleport_image.height() - 1, max(0, int(pixel_y))
+        )
+        colour = self._teleport_image.pixelColor(image_x, image_y)
+        warning = not metadata.pixel_is_free(
+            colour.red(), colour.green(), colour.blue()
+        )
+        world = metadata.pixel_to_world(
+            pixel_x, pixel_y, self._teleport_image.height()
+        )
+        self._selected_teleport = world
+        self._selected_teleport_warning = warning
+        self.teleport_map_view.set_destination(
+            pixel_x, pixel_y, warning=warning
+        )
+        suffix = (
+            ' · ADVERTENCIA: el píxel no parece espacio libre'
+            if warning else ' · zona aparentemente libre'
+        )
+        self.teleport_selection.setText(
+            f'Destino: x={world[0]:.3f}, y={world[1]:.3f}{suffix}'
+        )
+        self.teleport_button.setEnabled(not self._node.teleport_pending)
+
+    def _confirm_teleport(self) -> None:
+        if self._selected_teleport is None:
+            return
+        x, y = self._selected_teleport
+        keep_yaw = self.teleport_keep_yaw.isChecked()
+        yaw = (
+            self._current_yaw
+            if keep_yaw else math.radians(self.teleport_yaw.value())
+        )
+        warning = ''
+        if self._selected_teleport_warning:
+            warning = (
+                '\n\nAdvertencia: el punto no parece una celda libre. '
+                'Podría estar dentro de una pared u obstáculo.'
+            )
+        response = QMessageBox.question(
+            self,
+            'Confirmar teletransporte',
+            f'¿Teletransportar {self._node.robot_entity_name} a:\n\n'
+            f'x={x:.3f} m\ny={y:.3f} m\nyaw={math.degrees(yaw):.1f}°?'
+            f'{warning}\n\nSe cancelará cualquier navegación activa.',
+            QMessageBox.Yes | QMessageBox.No,
+            QMessageBox.No,
+        )
+        if response != QMessageBox.Yes:
+            return
+        self.emergency_stop()
+        if self._node.teleport_robot(x, y, yaw):
+            self.teleport_button.setEnabled(False)
+            self.teleport_selection.setText(
+                f'Teletransporte solicitado a x={x:.3f}, y={y:.3f}…'
+            )
 
     def _run_evaluation_query(
         self, query: str, language: str, navigate: bool
@@ -1637,13 +1985,27 @@ class SemanticOperatorWindow(QMainWindow):
             self.navigation_status,
             self._node.semantic_server_ready(),
         )
-        self._current_position = self._node.current_position()
-        self._set_indicator(self.tf_status, self._current_position is not None)
-        if self._current_position is None:
+        current_pose = self._node.current_pose()
+        self._current_position = (
+            None if current_pose is None else current_pose[:2]
+        )
+        self._set_indicator(self.tf_status, current_pose is not None)
+        if current_pose is None:
             self.pose_label.setText('Pose map → base_link: no disponible')
         else:
-            x, y = self._current_position
-            self.pose_label.setText(f'Pose map → base_link: x={x:.3f}, y={y:.3f}')
+            x, y, self._current_yaw = current_pose
+            self.pose_label.setText(
+                f'Pose map → base_link: x={x:.3f}, y={y:.3f}, '
+                f'yaw={math.degrees(self._current_yaw):.1f}°'
+            )
+            if (
+                self._teleport_map_metadata is not None
+                and not self._teleport_image.isNull()
+            ):
+                pixel = self._teleport_map_metadata.world_to_pixel(
+                    x, y, self._teleport_image.height()
+                )
+                self.teleport_map_view.set_robot(*pixel)
 
     def _handle_event(self, kind: str, payload: dict[str, Any]) -> None:
         if payload.get('kind') == 'evaluation' and kind in (
@@ -1657,7 +2019,15 @@ class SemanticOperatorWindow(QMainWindow):
             if message:
                 self._append_log(str(message), error=kind == 'error')
             return
-        if kind == 'voice_loading':
+        if kind == 'teleport_started':
+            self.teleport_button.setEnabled(False)
+            self.teleport_selection.setText(str(payload.get('message', '')))
+        elif kind == 'teleport_result':
+            self.teleport_button.setEnabled(
+                self._selected_teleport is not None
+            )
+            self.teleport_selection.setText(str(payload.get('message', '')))
+        elif kind == 'voice_loading':
             self.voice_prepare.setEnabled(False)
             self.voice_language.setEnabled(False)
             self.voice_ptt.setEnabled(False)
@@ -1732,7 +2102,10 @@ class SemanticOperatorWindow(QMainWindow):
         if message:
             self._append_log(
                 str(message),
-                error=kind in ('error', 'voice_error'),
+                error=(
+                    kind in ('error', 'voice_error')
+                    or (kind == 'teleport_result' and not payload.get('success'))
+                ),
             )
 
     def _reset_voice_button(self) -> None:

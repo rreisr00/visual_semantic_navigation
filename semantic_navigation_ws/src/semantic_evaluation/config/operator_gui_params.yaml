@@ -21,6 +21,7 @@ semantic_operator_gui:
     campaign_output_dir: "~/visual_semantic_navigation/experiments/simulation/campaigns"
     robot_entity_name: semantic_robot
     world_name: default
+    teleport_height: 0.01
     frozen_config_hash: ""
     frozen_config_path: ""
     retrieval_method: hybrid_semantic_retrieval
