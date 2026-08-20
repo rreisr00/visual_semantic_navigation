@@ -81,6 +81,11 @@ def test_load_category_scene(tmp_path):
     assert {n.room_id for n in dataset.nodes} == {"kitchen", "bedroom"}
     # Images exist but embeddings are pending → still valid (encodable).
     assert validate_scene(dataset) == []
+    object_query = ExperimentQuery(
+        query_id="bed", text="the room with a bed", query_type="object",
+        expected_room="bedroom",
+    )
+    assert resolve_valid_nodes(object_query, dataset) == ["bedroom_001", "bedroom_002"]
 
 
 def test_missing_scene_raises(tmp_path):

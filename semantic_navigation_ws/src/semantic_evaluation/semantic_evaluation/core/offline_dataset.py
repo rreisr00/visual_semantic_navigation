@@ -232,14 +232,22 @@ def resolve_valid_nodes(
     """Ground-truth node ids for a query in this dataset.
 
     Explicit ``valid_node_ids`` win. When empty and ``expected_room`` is set,
-    every node of that room is valid (the natural ground truth for room-type
-    queries in category datasets). Negative queries always resolve to [].
+    every node of that room is valid for room queries. Category-image datasets
+    also use the category as ground truth for object, attribute and functional
+    phrasings: these queries test whether language retrieves the intended image
+    category, not whether a particular object instance is localized. Negative
+    queries always resolve to [].
     """
     if query.is_negative:
         return []
     if query.valid_node_ids:
         return [v for v in query.valid_node_ids if v in set(dataset.node_ids())]
-    if query.expected_room and query.query_type == "room":
+    metadata = getattr(dataset, "metadata", {}) or {}
+    is_category_dataset = (
+        getattr(dataset, "source", "") == "category_images"
+        or metadata.get("node_semantics") == "independent_image"
+    )
+    if query.expected_room and (query.query_type == "room" or is_category_dataset):
         expected = query.expected_room.strip().lower()
         return [
             n.node_id for n in dataset.nodes
