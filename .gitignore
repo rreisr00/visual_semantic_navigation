@@ -78,3 +78,5 @@ experiments/simulation/cache/
 experiments/simulation/results/
 experiments/simulation/manifests/
 experiments/simulation/campaigns/
+experiments/data
+yolo26n.pt
