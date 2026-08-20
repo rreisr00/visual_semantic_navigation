@@ -6,13 +6,21 @@ experiment:
 models:
   siglip:
     model_id: google/siglip-base-patch16-224
+    variants:
+      siglip_v1: google/siglip-base-patch16-224
+      siglip_v2: google/siglip2-base-patch16-224
+    object_retrieval_variant: siglip_v2
     processor_fast: true
     local_files_only: true
     batch_size: 16
   yolo:
-    checkpoint: "${YOLO_CHECKPOINT}"
+    checkpoint: experiments/yolov8n.pt
+    variants:
+      yolov8n: experiments/yolov8n.pt
+      yolo26n: experiments/yolo26n.pt
     allow_download: false
     confidence_threshold: 0.4
+    ap_confidence_threshold: 0.001
     batch_size: 8
 
 runtime:
@@ -30,7 +38,6 @@ datasets:
   enabled:
     - siglip_rooms
     - sunrgbd
-    - matterport3d
     - visual_genome
   configs_dir: experiments/offline/config/datasets
 
@@ -68,6 +75,7 @@ evaluation:
   nearby_distance: 1
   bootstrap_samples: 2000
   confidence_level: 0.95
+  benchmark_samples: 20
 
 reproducibility:
   save_git_commit: true
