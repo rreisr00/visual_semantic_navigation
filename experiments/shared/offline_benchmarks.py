@@ -71,6 +71,12 @@ QUERY_LABELS = {
     "functional": "Funcional",
     "negative": "Negativa",
 }
+QUERY_SCOPE_LABELS = {
+    "general": "General: estancia explícita",
+    "descriptive": "Descriptiva: paráfrasis o función",
+    "specific": "Específica: uno o varios objetos",
+    "not_applicable": "Negativa",
+}
 
 
 def _sync_cuda() -> None:
@@ -117,6 +123,76 @@ def _prepared_queries(ctx: dict[str, Any], spec, bundle, require_objects: bool =
         if (item.query.is_negative or item.valid_node_ids)
         and (not require_objects or bool(item.query.expected_objects))
     ]
+
+
+def _query_formulation(query) -> tuple[str, str, str]:
+    """Classify what a query describes, independently of either VLM."""
+    if query.is_negative:
+        return "negative", "not_applicable", "absent_target"
+    if query.metadata.get("paraphrase_of"):
+        return "paraphrase", "descriptive", "implicit_room"
+    if query.query_type == "room":
+        return "direct_room", "general", "explicit_room"
+    if query.query_type == "object":
+        return "object_description", "specific", "single_object"
+    if query.query_type == "multi_object":
+        return "multi_object_description", "specific", "multiple_objects"
+    if query.query_type == "functional":
+        return "functional_description", "descriptive", "room_function"
+    if query.query_type == "attribute":
+        return "attribute_description", "descriptive", "visual_attribute"
+    return query.query_type, "descriptive", query.query_type
+
+
+def build_query_catalog(ctx: dict[str, Any]) -> pd.DataFrame:
+    """One auditable row per text input sent to SigLIP/SigLIP2."""
+    rows: list[dict[str, Any]] = []
+    for spec in ctx["dataset_specs"]:
+        queries = load_queries(str(Path(ctx["repo_root"]) / spec.queries_file))
+        for query in queries:
+            formulation, scope, semantic_content = _query_formulation(query)
+            pair_key = str(query.metadata.get("pair_id") or query.query_id.rsplit("_", 1)[0])
+            rows.append({
+                "query_id": query.query_id,
+                "dataset_id": query.dataset_id or spec.dataset_id,
+                "text": query.text,
+                "language": query.language,
+                "query_type": query.query_type,
+                "formulation": formulation,
+                "scope": scope,
+                "semantic_content": semantic_content,
+                "expected_room": query.expected_room or "",
+                "expected_objects": "|".join(query.expected_objects),
+                "expected_object_count": len(query.expected_objects),
+                "valid_node_count": len(query.valid_node_ids),
+                "word_count": len(query.text.split()),
+                "character_count": len(query.text),
+                "is_negative": query.is_negative,
+                "pair_key": pair_key,
+            })
+    catalog = pd.DataFrame(rows)
+    if catalog.empty:
+        return catalog
+    language_counts = catalog.groupby(["dataset_id", "pair_key"])["language"].transform("nunique")
+    catalog["has_bilingual_pair"] = language_counts.ge(2)
+    return catalog
+
+
+def summarize_query_catalog(catalog: pd.DataFrame) -> pd.DataFrame:
+    """Counts and text length by dataset, language and semantic scope."""
+    if catalog.empty:
+        return pd.DataFrame()
+    return (
+        catalog.groupby(["dataset_id", "language", "scope", "formulation"], dropna=False)
+        .agg(
+            n_queries=("query_id", "size"),
+            mean_words=("word_count", "mean"),
+            min_words=("word_count", "min"),
+            max_words=("word_count", "max"),
+            bilingual_pairs=("has_bilingual_pair", "sum"),
+        )
+        .reset_index()
+    )
 
 
 def _benchmark_vlm(
@@ -234,6 +310,28 @@ def _threshold_diagnostics(cases: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _summary_by_query_scope(cases: pd.DataFrame) -> pd.DataFrame:
+    rows: list[dict[str, Any]] = []
+    positive = cases.loc[(~cases["is_negative"]) & cases["method"].isin(VLM_LABELS)]
+    for (dataset_id, method, scope), group in positive.groupby(
+        ["dataset_id", "method", "scope"], dropna=False
+    ):
+        row: dict[str, Any] = {
+            "dataset_id": dataset_id,
+            "method": method,
+            "scope": scope,
+            "n_queries": len(group),
+            "mean_words": group["word_count"].mean(),
+        }
+        for metric in ("recall_at_1", "recall_at_3", "recall_at_5", "reciprocal_rank"):
+            mean, low, high = bootstrap_interval(group[metric].dropna().tolist())
+            row[metric] = mean
+            row[f"{metric}_ci_low"] = low
+            row[f"{metric}_ci_high"] = high
+        rows.append(row)
+    return pd.DataFrame(rows)
+
+
 def run_vlm_benchmark(ctx: dict[str, Any]) -> dict[str, pd.DataFrame]:
     """Compare SigLIP and SigLIP2 under the same single-view protocol."""
     config = ctx["config"]
@@ -291,7 +389,11 @@ def run_vlm_benchmark(ctx: dict[str, Any]) -> dict[str, pd.DataFrame]:
             **cost,
         })
         cache = EmbeddingCache(str(cache_root / f"vlm_{variant}"))
-        for dataset_id, (spec, bundle) in specs_and_bundles.items():
+        for dataset_id, (spec, _) in specs_and_bundles.items():
+            # A node keeps its embedding once populated.  Load an independent
+            # bundle per VLM so one variant can never reuse another model's
+            # in-memory image vectors (the on-disk cache is already model-keyed).
+            bundle = load_dataset(spec, ctx["repo_root"])
             encode_observations(bundle.nodes, pipeline, cache, cache_model_id)
             prepared = _prepared_queries(ctx, spec, bundle)
             embeddings = embed_texts(
@@ -309,6 +411,13 @@ def run_vlm_benchmark(ctx: dict[str, Any]) -> dict[str, pd.DataFrame]:
         _release_pipeline(pipeline)
 
     cases = pd.DataFrame(results_to_rows(all_results))
+    query_catalog = build_query_catalog(ctx)
+    query_columns = [
+        "query_id", "text", "formulation", "scope", "semantic_content",
+        "expected_room", "expected_objects", "expected_object_count", "word_count",
+        "character_count", "pair_key", "has_bilingual_pair",
+    ]
+    cases = cases.merge(query_catalog[query_columns], on="query_id", how="left")
     summary = _summary_with_intervals(cases)
     paired = _paired_vlm_differences(cases)
     thresholds = _threshold_diagnostics(cases)
@@ -318,6 +427,7 @@ def run_vlm_benchmark(ctx: dict[str, Any]) -> dict[str, pd.DataFrame]:
         "paired_differences": paired,
         "threshold_diagnostics": thresholds,
         "model_costs": pd.DataFrame(costs),
+        "summary_by_query_scope": _summary_by_query_scope(cases),
     }
 
 
@@ -548,6 +658,71 @@ def _save_figure(figure, directory: Path, name: str) -> list[str]:
     return paths
 
 
+def create_data_figures(
+    bundles: dict[str, Any], query_catalog: pd.DataFrame, output: str | Path
+) -> list[str]:
+    """Create dataset examples and an overview of the query protocol."""
+    import matplotlib.pyplot as plt
+
+    apply_plot_style()
+    output = Path(output)
+    paths: list[str] = []
+
+    selections = [
+        ("siglip_rooms", "kitchen", "Propio · cocina"),
+        ("siglip_rooms", "bedroom", "Propio · dormitorio"),
+        ("siglip_rooms", "livingroom", "Propio · salón"),
+        ("sunrgbd", "kitchen", "SUN RGB-D · cocina"),
+        ("sunrgbd", "bedroom", "SUN RGB-D · dormitorio"),
+        ("sunrgbd", "bathroom", "SUN RGB-D · baño"),
+    ]
+    fig, axes = plt.subplots(2, 3, figsize=(11.4, 7.4))
+    for ax, (dataset_id, room_id, title) in zip(axes.flat, selections):
+        bundle = bundles[dataset_id]
+        node = next(
+            (item for item in bundle.nodes
+             if str(item.room_id).strip().lower() == room_id),
+            None,
+        )
+        if node is None or not node.observations or not node.observations[0].image_path:
+            ax.text(0.5, 0.5, "Muestra no disponible", ha="center", va="center")
+        else:
+            ax.imshow(_read_rgb(node.observations[0].image_path))
+        ax.set_title(title)
+        ax.axis("off")
+    fig.suptitle("Ejemplos de imágenes empleadas en la evaluación offline")
+    fig.text(
+        0.5, 0.015,
+        "Visual Genome se usa mediante sus anotaciones de relaciones; sus imágenes no forman parte de la copia local.",
+        ha="center", fontsize=9,
+    )
+    fig.subplots_adjust(top=0.88, bottom=0.10, hspace=0.32, wspace=0.04)
+    paths.extend(_save_figure(fig, output, "datasets_ejemplos")); plt.close(fig)
+
+    counts = (
+        query_catalog.groupby(["dataset_id", "scope"]).size().unstack(fill_value=0)
+        .reindex(columns=list(QUERY_SCOPE_LABELS), fill_value=0)
+        .reindex(["siglip_rooms", "sunrgbd", "visual_genome"], fill_value=0)
+    )
+    fig, ax = plt.subplots(figsize=(9.2, 4.8))
+    bottom = np.zeros(len(counts), dtype=float)
+    for index, scope in enumerate(counts.columns):
+        values = counts[scope].to_numpy(dtype=float)
+        ax.bar(counts.index, values, bottom=bottom, label=QUERY_SCOPE_LABELS[scope],
+               color=PALETTE[index % len(PALETTE)])
+        bottom += values
+    ax.set_xticks(
+        np.arange(len(counts)),
+        ["Conjunto propio", "SUN RGB-D", "Visual Genome\n(solo relaciones)"],
+    )
+    ax.text(2, 0.7, "0 consultas", ha="center", va="bottom", fontsize=9)
+    ax.set_ylabel("Número de consultas")
+    ax.set_title("Composición semántica de las consultas por conjunto")
+    ax.legend(loc="upper left", bbox_to_anchor=(1.01, 1.0))
+    paths.extend(_save_figure(fig, output, "consultas_composicion")); plt.close(fig)
+    return paths
+
+
 def create_vlm_figures(
     cases: pd.DataFrame, model_costs: pd.DataFrame, output: str | Path
 ) -> list[str]:
@@ -608,6 +783,34 @@ def create_vlm_figures(
     ax.set_title("Comportamiento por idioma sobre SUN RGB-D")
     ax.legend()
     paths.extend(_save_figure(fig, output, "vlm_comparacion_idiomas")); plt.close(fig)
+
+    scope_order = [scope for scope in ("general", "descriptive", "specific")
+                   if scope in positive["scope"].dropna().unique()]
+    x = np.arange(len(scope_order))
+    fig, ax = plt.subplots(figsize=(9.2, 4.8))
+    for index, method in enumerate(VLM_LABELS):
+        means, lows, highs = [], [], []
+        for scope in scope_order:
+            values = positive.loc[
+                (positive["method"] == method) & (positive["scope"] == scope),
+                "recall_at_1",
+            ].dropna().tolist()
+            mean, low, high = bootstrap_interval(values)
+            means.append(mean); lows.append(mean - low); highs.append(high - mean)
+        ax.bar(x + (index - 0.5) * width, means, width, label=VLM_LABELS[method],
+               yerr=np.vstack([lows, highs]), capsize=3)
+    labels = []
+    for scope in scope_order:
+        count = positive.loc[
+            (positive["method"] == "siglip_v1") & (positive["scope"] == scope)
+        ].shape[0]
+        labels.append(f"{QUERY_SCOPE_LABELS[scope]}\n(n={count})")
+    ax.set_xticks(x, labels)
+    ax.set_ylim(0, 1.08)
+    ax.set_ylabel("Recall@1")
+    ax.set_title("Recuperación según el alcance semántico de la consulta")
+    ax.legend()
+    paths.extend(_save_figure(fig, output, "vlm_recall_por_alcance_consulta")); plt.close(fig)
 
     fig, axes = plt.subplots(1, 2, figsize=(9.2, 4.2))
     labels = [VLM_LABELS[item] for item in model_costs["method"]]
@@ -733,6 +936,29 @@ def write_results_summary(
             f"{group['recall_at_3'].mean():.3f} | {group['recall_at_5'].mean():.3f} | "
             f"{group['reciprocal_rank'].mean():.3f} |"
         )
+    lines.extend([
+        "",
+        "## Sensibilidad a la formulación de la consulta",
+        "",
+        "Las consultas se suministran directamente al encoder textual. En SUN RGB-D "
+        "hay 20 consultas positivas generales, 10 descriptivas y 20 específicas.",
+        "",
+        "| Alcance | Consultas | R@1 SigLIP | R@1 SigLIP2 |",
+        "|---|---:|---:|---:|",
+    ])
+    for scope in ("general", "descriptive", "specific"):
+        v1 = sun.loc[(sun["method"] == "siglip_v1") & (sun["scope"] == scope)]
+        v2 = sun.loc[(sun["method"] == "siglip_v2") & (sun["scope"] == scope)]
+        lines.append(
+            f"| {QUERY_SCOPE_LABELS[scope]} | {len(v1)} | "
+            f"{v1['recall_at_1'].mean():.3f} | {v2['recall_at_1'].mean():.3f} |"
+        )
+    lines.extend([
+        "",
+        "Figuras de caracterización: "
+        "[composición de consultas](data_validation/figures/consultas_composicion.pdf) y "
+        "[muestras de imágenes](data_validation/figures/datasets_ejemplos.pdf).",
+    ])
     lines.extend(["", "## Detección de objetos", "",
                   "| Detector | mAP@0,5 | Precisión | Exhaustividad | F1 | Latencia (ms) |",
                   "|---|---:|---:|---:|---:|---:|"])
