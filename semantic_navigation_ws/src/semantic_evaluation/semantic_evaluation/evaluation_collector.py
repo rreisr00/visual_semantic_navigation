@@ -46,6 +46,8 @@ from geometry_msgs.msg import PoseWithCovarianceStamped
 from ros_gz_interfaces.msg import Entity
 from ros_gz_interfaces.srv import SetEntityPose
 
+from nav2_msgs.srv import ClearEntireCostmap
+
 from semantic_interfaces.action import NavigateToSemanticGoal
 from semantic_interfaces.srv import GetGraphSnapshot
 
@@ -136,6 +138,18 @@ class EvaluationCollectorNode(Node):
         self.declare_parameter("robot_entity_name", "waffle")
         self.declare_parameter("initial_pose_topic", "/initialpose")
         self.declare_parameter("localization_settle_s", 5.0)
+        # Tras teletransportar el robot, los costmaps conservan los obstaculos
+        # de la pose anterior y el planificador devuelve NO_VALID_PATH (208).
+        self.declare_parameter("clear_costmaps_on_reset", True)
+        self.declare_parameter(
+            "global_costmap_clear_service",
+            "/global_costmap/clear_entirely_global_costmap",
+        )
+        self.declare_parameter(
+            "local_costmap_clear_service",
+            "/local_costmap/clear_entirely_local_costmap",
+        )
+        self.declare_parameter("costmap_settle_s", 3.0)
 
         self._action_name = self.get_parameter("action_name").value
         self._snapshot_name = self.get_parameter("snapshot_service_name").value
@@ -212,6 +226,16 @@ class EvaluationCollectorNode(Node):
             str(self.get_parameter("reset_pose_service").value),
             callback_group=self._reset_cbg,
         )
+        self._clear_costmap_clients = [
+            self.create_client(
+                ClearEntireCostmap,
+                str(self.get_parameter(name).value),
+                callback_group=self._reset_cbg,
+            )
+            for name in (
+                "global_costmap_clear_service", "local_costmap_clear_service"
+            )
+        ]
         initial_pose_qos = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
@@ -280,13 +304,13 @@ class EvaluationCollectorNode(Node):
         if goal is None:
             return self._failed_result(case, graph, "could not build goal")
 
-        outcome = self._send_goal_and_wait(
+        outcome, failure_reason = self._send_goal_and_wait(
             goal, case.timeout_s if case.timeout_s > 0.0 else self._result_timeout
         )
         hardware = self._hw.sample()
 
         if outcome is None:
-            return self._failed_result(case, graph, "no action result", hardware)
+            return self._failed_result(case, graph, failure_reason, hardware)
 
         expected_rejection = case.is_negative or not case.target_visible
         result = TestCaseResult(
@@ -387,15 +411,20 @@ class EvaluationCollectorNode(Node):
         return goal
 
     def _send_goal_and_wait(self, goal, result_timeout: float):
-        """Send a goal and block the *main* thread on the result future."""
+        """Send a goal and block the *main* thread on the result future.
+
+        Returns ``(outcome, reason)``. ``reason`` es ``None`` si hubo
+        resultado; en caso contrario distingue los tres modos de fallo, que
+        antes se colapsaban en una etiqueta unica y enganosa.
+        """
         send_future = self._action_client.send_goal_async(goal)
         goal_handle = self._await(send_future, self._goal_response_timeout)
         if goal_handle is None:
             self.get_logger().error("Goal response timed out.")
-            return None
+            return None, "goal response timeout"
         if not goal_handle.accepted:
             self.get_logger().error("Goal rejected by server.")
-            return None
+            return None, "goal rejected by server"
 
         self._active_goal_handle = goal_handle
         result_future = goal_handle.get_result_async()
@@ -404,9 +433,9 @@ class EvaluationCollectorNode(Node):
             self.get_logger().error("Result timed out.")
             self._await(goal_handle.cancel_goal_async(), 5.0)
             self._active_goal_handle = None
-            return None
+            return None, "result timeout"
         self._active_goal_handle = None
-        return result_msg.result
+        return result_msg.result, None
 
     def cancel_active_goal(self) -> None:
         """Cancel an in-flight semantic/Nav2 goal before shutting down."""
@@ -458,6 +487,34 @@ class EvaluationCollectorNode(Node):
             self._initial_pose_pub.publish(initial)
             time.sleep(0.1)
         time.sleep(float(self.get_parameter("localization_settle_s").value))
+        if not self._clear_costmaps():
+            return False
+        return True
+
+    def _clear_costmaps(self) -> bool:
+        """Vacia los costmaps tras el teletransporte.
+
+        Sin esto el costmap global conserva los obstaculos observados desde la
+        pose anterior y el planificador rechaza rutas validas con
+        ComputePathToPose NO_VALID_PATH (208), contaminando la metrica de
+        navegacion con fallos de infraestructura.
+        """
+        if not bool(self.get_parameter("clear_costmaps_on_reset").value):
+            return True
+        for client in self._clear_costmap_clients:
+            name = client.srv_name
+            if not client.wait_for_service(timeout_sec=self._service_timeout):
+                self.get_logger().error(f"Costmap clear service '{name}' unavailable.")
+                return False
+            if self._await(
+                client.call_async(ClearEntireCostmap.Request()),
+                self._service_timeout,
+            ) is None:
+                self.get_logger().error(f"Costmap clear '{name}' timed out.")
+                return False
+        # Los costmaps necesitan repoblarse con los sensores en la pose nueva
+        # antes de que el planificador global pueda calcular una ruta.
+        time.sleep(float(self.get_parameter("costmap_settle_s").value))
         return True
 
     def _read_graph_context(self) -> GraphContext:
@@ -689,7 +746,7 @@ class EvaluationCollectorNode(Node):
             nearby_valid_nodes=list(case.nearby_valid_nodes),
             is_negative=case.is_negative,
             target_visible=case.target_visible,
-            failure_type=("timeout" if "timeout" in reason else "data_logging_failure"),
+            failure_type=_failure_type_for(reason),
             campaign_id=self._campaign_id,
             run_id=self._run_id,
             scene_id=self._scene_id,
@@ -700,6 +757,25 @@ class EvaluationCollectorNode(Node):
         return annotate_accuracy(
             result, self._separator, self._strategy, self._room_map
         )
+
+
+def _failure_type_for(reason: str) -> str:
+    """Clasifica el motivo textual de un caso fallido.
+
+    Antes cualquier motivo sin la palabra "timeout" acababa etiquetado como
+    ``data_logging_failure``, de modo que los tiempos agotados de la accion se
+    contaban como fallos de registro y contaminaban la taxonomia de fallos.
+    """
+    normalized = (reason or "").strip().lower()
+    if "timeout" in normalized or "timed out" in normalized:
+        return "timeout"
+    if "rejected" in normalized:
+        return "goal_rejected"
+    if "build goal" in normalized:
+        return "invalid_goal"
+    if "start pose" in normalized:
+        return "localization_failure"
+    return "data_logging_failure"
 
 
 def _rank_first_valid(

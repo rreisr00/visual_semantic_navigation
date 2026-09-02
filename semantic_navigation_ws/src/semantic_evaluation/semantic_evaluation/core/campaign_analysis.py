@@ -59,6 +59,16 @@ def _bool_value(value: Any) -> bool | None:
         return None
     if isinstance(value, bool):
         return value
+    # La fila __AGGREGATE_MEAN__ obliga a pandas a tipar estas columnas como
+    # float64, asi que tras descartarla los valores siguen siendo 0.0/1.0.
+    # Solo 0 y 1 exactos son booleanos: cualquier otro numero indica que una
+    # fila agregada se ha colado y debe fallar en vez de redondearse.
+    if isinstance(value, (int, float)):
+        if value == 0:
+            return False
+        if value == 1:
+            return True
+        raise ValueError(f"cannot convert {value!r} to boolean")
     normalized = str(value).strip().lower()
     if normalized in {"1", "true", "yes"}:
         return True

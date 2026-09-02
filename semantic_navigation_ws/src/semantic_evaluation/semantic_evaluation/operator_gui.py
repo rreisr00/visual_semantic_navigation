@@ -446,8 +446,12 @@ class SemanticOperatorNode(Node):
             f"Operator GUI backend ready for scene '{self.scene_id}'."
         )
 
-    def push_event(self, kind: str, **payload: Any) -> None:
-        self._events.put((kind, payload))
+    def push_event(self, event_type: str, **payload: Any) -> None:
+        # El primer argumento nombra el evento ('error', 'navigation_started'…);
+        # el payload puede llevar su propia clave 'kind' con el tipo de
+        # navegación ('evaluation', 'semantic', 'pose'), así que el parámetro no
+        # puede llamarse 'kind' o ambos colisionan.
+        self._events.put((event_type, payload))
 
     def pop_events(self) -> list[tuple[str, dict[str, Any]]]:
         events: list[tuple[str, dict[str, Any]]] = []
