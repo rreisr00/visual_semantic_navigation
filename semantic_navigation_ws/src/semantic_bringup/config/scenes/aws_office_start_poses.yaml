@@ -1,6 +1,6 @@
 scene_id: aws_office
 frame_id: map
 poses:
-  - pose_id: office_origin
-    position: [0.0, 20.0, 0.01]
-    orientation: [0.0, 0.0, -0.6816388, 0.7316889]
+- pose_id: origin
+  position: [0.0, 20.0, 0.01]
+  orientation: [0.0, 0.0, -0.6816388, 0.7316889]

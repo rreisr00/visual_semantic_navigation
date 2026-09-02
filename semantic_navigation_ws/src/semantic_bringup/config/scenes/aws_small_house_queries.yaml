@@ -1,43 +1,223 @@
 suite_id: aws_small_house_semantic_queries_v1
 scene_id: aws_small_house
 cases:
-  - case_id: kitchen_coffee
-    query_id: kitchen_coffee_en
-    query_text: "the coffee machine on the kitchen counter"
-    query_type: object_relation
-    language: en
-    start_pose_id: origin
-    exact_valid_nodes: [cocina_01]
-    nearby_valid_nodes: [cocina_02]
-    is_negative: false
-    timeout_s: 300.0
-  - case_id: living_sofa
-    query_id: living_sofa_es
-    query_text: "el sofá del salón"
-    query_type: object_room
-    language: es
-    start_pose_id: origin
-    exact_valid_nodes: [sala_estar_01]
-    nearby_valid_nodes: [sala_estar_02]
-    is_negative: false
-    timeout_s: 300.0
-  - case_id: bedroom_bed
-    query_id: bedroom_bed_en
-    query_text: "the bed in the bedroom"
-    query_type: object_room
-    language: en
-    start_pose_id: origin
-    exact_valid_nodes: [dormitorio_01]
-    nearby_valid_nodes: []
-    is_negative: false
-    timeout_s: 300.0
-  - case_id: negative_pool
-    query_id: negative_swimming_pool_es
-    query_text: "la piscina interior"
-    query_type: negative
-    language: es
-    start_pose_id: origin
-    exact_valid_nodes: []
-    nearby_valid_nodes: []
-    is_negative: true
-    timeout_s: 60.0
+- case_id: room_kitchen
+  query_id: room_kitchen_es
+  query_text: ve a la cocina
+  query_type: room
+  language: es
+  start_pose_id: dormitorio
+  exact_valid_nodes:
+  - W6
+  - W7
+  - W8
+  nearby_valid_nodes: []
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: room_living
+  query_id: room_living_en
+  query_text: go to the living room
+  query_type: room
+  language: en
+  start_pose_id: cocina_sur
+  exact_valid_nodes:
+  - W1
+  - W2
+  - W3
+  - W4
+  - W5
+  nearby_valid_nodes: []
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: kitchen_fridge
+  query_id: kitchen_fridge_en
+  query_text: the large stainless steel refrigerator in the kitchen
+  query_type: object_room
+  language: en
+  start_pose_id: dormitorio
+  exact_valid_nodes:
+  - W6
+  nearby_valid_nodes:
+  - W7
+  - W8
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: kitchen_sink
+  query_id: kitchen_sink_en
+  query_text: the kitchen sink on the white countertop
+  query_type: object_room
+  language: en
+  start_pose_id: origin
+  exact_valid_nodes:
+  - W6
+  - W8
+  nearby_valid_nodes:
+  - W7
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: kitchen_dining_table
+  query_id: kitchen_dining_table_es
+  query_text: la mesa de comedor de la cocina
+  query_type: object_room
+  language: es
+  start_pose_id: dormitorio
+  exact_valid_nodes:
+  - W8
+  nearby_valid_nodes:
+  - W7
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: living_sofa
+  query_id: living_sofa_es
+  query_text: el sofa blanco del salon
+  query_type: object_room
+  language: es
+  start_pose_id: cocina_sur
+  exact_valid_nodes:
+  - W1
+  - W4
+  nearby_valid_nodes:
+  - W3
+  - W5
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: living_tv
+  query_id: living_tv_en
+  query_text: the television screen on the living room wall
+  query_type: object_room
+  language: en
+  start_pose_id: cocina_sur
+  exact_valid_nodes:
+  - W4
+  nearby_valid_nodes:
+  - W2
+  - W3
+  - W5
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: living_orange_seats
+  query_id: living_orange_seats_es
+  query_text: los asientos naranjas junto a los ventanales del salon
+  query_type: object_room
+  language: es
+  start_pose_id: cocina_sur
+  exact_valid_nodes:
+  - W3
+  - W4
+  nearby_valid_nodes:
+  - W1
+  - W2
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: bedroom_bed
+  query_id: bedroom_bed_es
+  query_text: la cama con la mesilla de noche al lado
+  query_type: object
+  language: es
+  start_pose_id: cocina_sur
+  exact_valid_nodes:
+  - W9
+  - W10
+  nearby_valid_nodes: []
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: bedroom_wardrobe
+  query_id: bedroom_wardrobe_en
+  query_text: the tall wooden wardrobe beside a white chest of drawers
+  query_type: object
+  language: en
+  start_pose_id: cocina_sur
+  exact_valid_nodes:
+  - W10
+  nearby_valid_nodes:
+  - W9
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: bedroom_desk
+  query_id: bedroom_desk_es
+  query_text: el escritorio de madera con una silla azul frente a la ventana
+  query_type: object
+  language: es
+  start_pose_id: cocina_sur
+  exact_valid_nodes:
+  - W9
+  nearby_valid_nodes:
+  - W10
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: gym_equipment
+  query_id: gym_equipment_es
+  query_text: la zona de gimnasio con la pelota de ejercicio y la barra de pesas
+  query_type: object
+  language: es
+  start_pose_id: origin
+  exact_valid_nodes:
+  - W11
+  nearby_valid_nodes:
+  - W4
+  - W12
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: tv_near_dining_table
+  query_id: tv_near_dining_table_en
+  query_text: the tv next to the dining table
+  query_type: object_relation
+  language: en
+  start_pose_id: cocina_sur
+  exact_valid_nodes:
+  - W5
+  nearby_valid_nodes:
+  - W1
+  - W3
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: ambiguous_cup
+  query_id: ambiguous_cup_es
+  query_text: la taza azul en el suelo
+  query_type: ambiguous
+  language: es
+  start_pose_id: cocina_sur
+  exact_valid_nodes:
+  - W1
+  - W3
+  nearby_valid_nodes:
+  - W8
+  - W10
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: negative_pool
+  query_id: negative_pool_es
+  query_text: la piscina climatizada de la casa
+  query_type: negative
+  language: es
+  start_pose_id: origin
+  exact_valid_nodes: []
+  nearby_valid_nodes: []
+  is_negative: true
+  target_visible: false
+  timeout_s: 60.0
+- case_id: negative_elevator
+  query_id: negative_elevator_en
+  query_text: the elevator doors in the hallway
+  query_type: negative
+  language: en
+  start_pose_id: origin
+  exact_valid_nodes: []
+  nearby_valid_nodes: []
+  is_negative: true
+  target_visible: false
+  timeout_s: 60.0

@@ -1,4 +1,179 @@
-suite_id: aws_office_queries_v1
+suite_id: aws_office_semantic_queries_v1
 scene_id: aws_office
-# Add cases after fixing the final geometry, semantic nodes and start poses.
-cases: []
+cases:
+- case_id: room_cubiculos
+  query_id: room_cubiculos_es
+  query_text: ve a la zona de cubiculos
+  query_type: room
+  language: es
+  start_pose_id: origin
+  exact_valid_nodes: [O1, O4, O13]
+  nearby_valid_nodes: []
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: room_reuniones
+  query_id: room_reuniones_es
+  query_text: ve a la sala de reuniones
+  query_type: room
+  language: es
+  start_pose_id: origin
+  exact_valid_nodes: [O9, O14]
+  nearby_valid_nodes: []
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: cafeteria_fridges
+  query_id: cafeteria_fridges_es
+  query_text: los dos frigorificos junto a la encimera
+  query_type: object
+  language: es
+  start_pose_id: origin
+  exact_valid_nodes: [O8]
+  nearby_valid_nodes: []
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: cafeteria_tv
+  query_id: cafeteria_tv_en
+  query_text: the television on a wooden stand
+  query_type: object
+  language: en
+  start_pose_id: origin
+  exact_valid_nodes: [O8]
+  nearby_valid_nodes: [O10]
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: elevator_doors
+  query_id: elevator_doors_es
+  query_text: las puertas metalicas del ascensor
+  query_type: object
+  language: es
+  start_pose_id: origin
+  exact_valid_nodes: [O10, O11]
+  nearby_valid_nodes: []
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: reception_sofa
+  query_id: reception_sofa_es
+  query_text: el sofa gris de la recepcion
+  query_type: object_room
+  language: es
+  start_pose_id: origin
+  exact_valid_nodes: [O10]
+  nearby_valid_nodes: [O11]
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: restroom_toilet
+  query_id: restroom_toilet_es
+  query_text: el aseo con el inodoro blanco
+  query_type: object
+  language: es
+  start_pose_id: origin
+  exact_valid_nodes: [O7]
+  nearby_valid_nodes: []
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: meeting_table
+  query_id: meeting_table_en
+  query_text: the long wooden table with executive chairs
+  query_type: object
+  language: en
+  start_pose_id: origin
+  exact_valid_nodes: [O9, O14]
+  nearby_valid_nodes: []
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: cubicle_monitors
+  query_id: cubicle_monitors_en
+  query_text: the office cubicles with computer monitors
+  query_type: object
+  language: en
+  start_pose_id: origin
+  exact_valid_nodes: [O1, O13]
+  nearby_valid_nodes: [O4]
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: office_red_chairs
+  query_id: office_red_chairs_es
+  query_text: las sillas rojas de las oficinas
+  query_type: object_room
+  language: es
+  start_pose_id: origin
+  exact_valid_nodes: [O5, O12]
+  nearby_valid_nodes: []
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: kitchen_cabinets
+  query_id: kitchen_cabinets_es
+  query_text: la cocina con los armarios amarillos y el microondas
+  query_type: object
+  language: es
+  start_pose_id: origin
+  exact_valid_nodes: [O6]
+  nearby_valid_nodes: [O8]
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: coffee_machine
+  query_id: coffee_machine_es
+  query_text: la cafetera sobre una mesa auxiliar
+  query_type: object
+  language: es
+  start_pose_id: origin
+  exact_valid_nodes: [O10]
+  nearby_valid_nodes: []
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: whiteboard
+  query_id: whiteboard_en
+  query_text: the whiteboard in a meeting room
+  query_type: object
+  language: en
+  start_pose_id: origin
+  exact_valid_nodes: [O9]
+  nearby_valid_nodes: [O14]
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: table_near_chairs
+  query_id: table_near_chairs_es
+  query_text: la mesa de comedor junto a una silla
+  query_type: object_relation
+  language: es
+  start_pose_id: origin
+  exact_valid_nodes: [O6]
+  nearby_valid_nodes: []
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: negative_pool
+  query_id: negative_pool_es
+  query_text: la piscina cubierta del edificio
+  query_type: negative
+  language: es
+  start_pose_id: origin
+  exact_valid_nodes: []
+  nearby_valid_nodes: []
+  is_negative: true
+  target_visible: false
+  timeout_s: 300.0
+- case_id: negative_garage
+  query_id: negative_garage_en
+  query_text: the underground parking garage
+  query_type: negative
+  language: en
+  start_pose_id: origin
+  exact_valid_nodes: []
+  nearby_valid_nodes: []
+  is_negative: true
+  target_visible: false
+  timeout_s: 300.0
