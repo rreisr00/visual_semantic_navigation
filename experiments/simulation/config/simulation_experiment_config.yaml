@@ -4,7 +4,7 @@ experiment:
   # notebook computes the same canonical hash as the ROS launch and rejects
   # campaign runs produced with any other configuration.
   frozen_retrieval_config: semantic_navigation_ws/src/semantic_navigation_ros/config/frozen_retrieval_config.yaml
-  expected_config_hash: null
+  expected_config_hash: 27e37956bf238d1f5d890eebfbcaa3a86988b5dbeb31c24ded51d1c05c429f20
 
 paths:
   campaigns_root: experiments/simulation/campaigns

@@ -12,16 +12,16 @@ multiview_aggregation:
 retrieval_method: hybrid_semantic_retrieval
 room_policy: strict_filter
 retrieval_weights:
-  global_similarity: 0.25
-  object_match: 0.05
-  crop_similarity: 0.0
-  relation_match: 0.7
+  global_similarity: 0.1
+  object_match: 0.0
+  crop_similarity: 0.05
+  relation_match: 0.85
   room_match: 0.0
-rejection_threshold: -0.0117
+rejection_threshold: -0.002
 category_mappings: {}
 relation_extractor_version: bbox_depth_relations_v2
 calibration:
-  suite: aws_small_house_validation_queries_v1
+  suite: aws_office_validation_queries_v1
   method: simplex_grid_lexicographic_recall_f1_margin
   grid_step: 0.05
-  base_config_hash: eefce26942a64e773e8253fe2045b122eeb97920edaa3facf32b2b9c7ab9b816
+  base_config_hash: 27e37956bf238d1f5d890eebfbcaa3a86988b5dbeb31c24ded51d1c05c429f20
