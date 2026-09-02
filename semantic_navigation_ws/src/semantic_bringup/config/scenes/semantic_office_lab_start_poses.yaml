@@ -1,0 +1,9 @@
+scene_id: semantic_office_lab
+frame_id: map
+poses:
+  - pose_id: lab_entrance
+    position: [-4.0, 0.0, 0.01]
+    orientation: [0.0, 0.0, 0.0, 1.0]
+  - pose_id: meeting_door
+    position: [0.8, 1.0, 0.01]
+    orientation: [0.0, 0.0, 0.7071068, 0.7071068]

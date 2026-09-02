@@ -1,0 +1,32 @@
+scene_id: semantic_office_lab
+world_file: worlds/semantic_office_lab.world
+launch_file: launch/simulation.launch.py
+localization_mode: localization
+map_file: maps/semantic_office_lab.yaml
+graph_database: ~/.ros/semantic_maps/semantic_office_lab/graph.db
+queries_file: config/scenes/semantic_office_lab_queries.yaml
+start_poses_file: config/scenes/semantic_office_lab_start_poses.yaml
+ground_truth_file: config/scenes/semantic_office_lab_ground_truth.yaml
+robot_model: turtlebot3_waffle_semantic
+spawn: {x: -4.0, y: 0.0, yaw: 0.0}
+launch:
+  use_sim_time: true
+  start_semantic: true
+  start_rviz: true
+  start_auto_mapping: false
+  headless: false
+camera_topics: {rgb: /camera/image_raw, camera_info: /camera/camera_info}
+depth_topics: {image: /camera/depth/image_raw, camera_info: /camera/depth/camera_info}
+scan_topic: /scan
+frames: {map: map, odom: odom, base: base_link, camera: camera_rgb_frame,
+  camera_optical: camera_rgb_optical_frame}
+node_creation:
+  minimum_translation_m: 1.25
+  minimum_rotation_deg: 40.0
+  minimum_time_s: 2.0
+  duplicate_distance_m: 0.45
+  maximum_edge_distance_m: 3.5
+campaign:
+  timeout_s: 300.0
+  localization_settle_s: 5.0
+  frozen_retrieval_config: semantic_navigation_ros/config/frozen_retrieval_config.yaml

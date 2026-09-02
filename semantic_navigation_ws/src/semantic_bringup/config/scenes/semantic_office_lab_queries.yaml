@@ -1,0 +1,63 @@
+suite_id: semantic_office_lab_queries_v1
+scene_id: semantic_office_lab
+cases:
+  - case_id: red_cup_monitor
+    query_id: red_cup_left_monitor_en
+    query_text: "the red cup to the left of the monitor"
+    query_type: object_relation
+    language: en
+    start_pose_id: lab_entrance
+    exact_valid_nodes: [workstation_north_01]
+    nearby_valid_nodes: [workstation_north_02]
+    is_negative: false
+    timeout_s: 300.0
+  - case_id: green_cup_monitor
+    query_id: green_cup_monitor_es
+    query_text: "la taza verde junto al monitor"
+    query_type: object_relation
+    language: es
+    start_pose_id: meeting_door
+    exact_valid_nodes: [workstation_south_01]
+    nearby_valid_nodes: []
+    is_negative: false
+    timeout_s: 300.0
+  - case_id: meeting_plant
+    query_id: meeting_plant_en
+    query_text: "the meeting table near the plant and window"
+    query_type: multi_object_relation
+    language: en
+    start_pose_id: lab_entrance
+    exact_valid_nodes: [meeting_room_01]
+    nearby_valid_nodes: [meeting_room_02]
+    is_negative: false
+    timeout_s: 300.0
+  - case_id: printer_shelf
+    query_id: printer_shelf_es
+    query_text: "la impresora cerca de la estantería"
+    query_type: object_relation
+    language: es
+    start_pose_id: lab_entrance
+    exact_valid_nodes: [print_area_01]
+    nearby_valid_nodes: []
+    is_negative: false
+    timeout_s: 300.0
+  - case_id: ambiguous_monitor
+    query_id: ambiguous_monitor_en
+    query_text: "the monitor on a desk"
+    query_type: ambiguous
+    language: en
+    start_pose_id: lab_entrance
+    exact_valid_nodes: [workstation_north_01, workstation_south_01]
+    nearby_valid_nodes: [workstation_north_02]
+    is_negative: false
+    timeout_s: 300.0
+  - case_id: negative_sofa
+    query_id: negative_sofa_es
+    query_text: "el sofá de la recepción"
+    query_type: negative
+    language: es
+    start_pose_id: lab_entrance
+    exact_valid_nodes: []
+    nearby_valid_nodes: []
+    is_negative: true
+    timeout_s: 60.0

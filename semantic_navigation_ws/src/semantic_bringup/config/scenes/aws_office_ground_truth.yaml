@@ -1,0 +1,59 @@
+scene_id: aws_office
+annotation_version: 1
+rooms:
+- room_id: cubiculos
+  valid_nodes: [O1, O4, O13]
+- room_id: oficinas
+  valid_nodes: [O5, O12]
+- room_id: reuniones
+  valid_nodes: [O9, O14]
+- room_id: cafeteria
+  valid_nodes: [O8]
+- room_id: comedor
+  valid_nodes: [O6]
+- room_id: recepcion
+  valid_nodes: [O10, O11]
+- room_id: vestibulo
+  valid_nodes: [O2, O3]
+- room_id: pasillo
+  valid_nodes: [O7]
+objects:
+- category: refrigerator
+  room_id: cafeteria
+  exact_valid_nodes: [O8]
+  nearby_valid_nodes: []
+- category: tv
+  room_id: cafeteria
+  exact_valid_nodes: [O8]
+  nearby_valid_nodes: []
+- category: dining table
+  room_id: comedor
+  exact_valid_nodes: [O6]
+  nearby_valid_nodes: [O4]
+- category: couch
+  room_id: recepcion
+  exact_valid_nodes: [O10]
+  nearby_valid_nodes: [O11]
+- category: toilet
+  room_id: pasillo
+  exact_valid_nodes: [O7]
+  nearby_valid_nodes: []
+- category: chair
+  room_id: cubiculos
+  exact_valid_nodes: [O1, O13]
+  nearby_valid_nodes: [O4]
+- category: chair
+  room_id: oficinas
+  exact_valid_nodes: [O5, O12]
+  nearby_valid_nodes: []
+- category: chair
+  room_id: reuniones
+  exact_valid_nodes: [O9, O14]
+  nearby_valid_nodes: []
+relations:
+- subject: dining table
+  predicate: NEAR
+  object: chair
+  relation_type: geometric_3d_relation
+  valid_nodes: [O6]
+negative_queries: [negative_pool_es, negative_garage_en]

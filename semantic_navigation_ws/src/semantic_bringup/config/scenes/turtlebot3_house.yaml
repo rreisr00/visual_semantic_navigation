@@ -1,0 +1,32 @@
+scene_id: turtlebot3_house
+world_file: worlds/turtlebot3_house.world
+launch_file: semantic_bringup/launch/simulation.launch.py
+localization_mode: slam
+map_file: ""
+graph_database: ~/.ros/semantic_maps/turtlebot3_house/graph.db
+queries_file: config/scenes/turtlebot3_house_queries.yaml
+start_poses_file: config/scenes/turtlebot3_house_start_poses.yaml
+ground_truth_file: config/scenes/turtlebot3_house_ground_truth.yaml
+robot_model: turtlebot3_waffle_semantic
+spawn: {x: -2.0, y: -0.5, yaw: 0.0}
+launch:
+  use_sim_time: true
+  start_semantic: true
+  start_rviz: true
+  start_auto_mapping: false
+  headless: false
+camera_topics: {rgb: /camera/image_raw, camera_info: /camera/camera_info}
+depth_topics: {image: /camera/depth/image_raw, camera_info: /camera/depth/camera_info}
+scan_topic: /scan
+frames: {map: map, odom: odom, base: base_link, camera: camera_rgb_frame,
+  camera_optical: camera_rgb_optical_frame}
+node_creation:
+  minimum_translation_m: 1.5
+  minimum_rotation_deg: 45.0
+  minimum_time_s: 2.0
+  duplicate_distance_m: 0.5
+  maximum_edge_distance_m: 4.0
+campaign:
+  timeout_s: 360.0
+  localization_settle_s: 8.0
+  frozen_retrieval_config: semantic_navigation_ros/config/frozen_retrieval_config.yaml

@@ -42,7 +42,11 @@ from std_msgs.msg import Float64
 
 from diagnostic_updater import Updater, DiagnosticStatusWrapper
 
+from semantic_interfaces.msg import ObjectDetection, SemanticRelation
 from semantic_interfaces.srv import GetEmbedding, GetVisualFeatures
+from semantic_navigation_core.relations import infer_relations
+from semantic_navigation_core.geometry import infer_3d_relations, project_box_center
+from semantic_navigation_core.types import ObjectObservation
 
 try:
     from cv_bridge import CvBridge
@@ -83,6 +87,11 @@ class VisualEncoderNode(LifecycleNode):
             "yolo_model_path", "~/.ros/semantic_models/yolov8n.pt"
         )
         self.declare_parameter("yolo_confidence_threshold", 0.4)
+        self.declare_parameter("include_crop_embeddings", True)
+        self.declare_parameter("max_crop_embeddings", 16)
+        self.declare_parameter("local_files_only", True)
+        self.declare_parameter("minimum_depth_m", 0.1)
+        self.declare_parameter("maximum_depth_m", 10.0)
         # When True the next configure loads SigLIP on CPU (OOM fallback).
         self.declare_parameter("force_cpu", False)
 
@@ -132,6 +141,7 @@ class VisualEncoderNode(LifecycleNode):
                 yolo_model_path=yolo_path,
                 yolo_confidence_threshold=yolo_conf,
                 device=device,
+                local_files_only=bool(self.get_parameter("local_files_only").value),
             )
         except (ImportError, ValueError, RuntimeError) as exc:
             self.get_logger().error(f"Pipeline initialisation failed: {exc}")
@@ -208,14 +218,108 @@ class VisualEncoderNode(LifecycleNode):
             return self._features_error(response, f"Image conversion error: {exc}")
 
         try:
-            embedding, objects = self._run_gpu(
-                lambda: self._pipeline.process_image(image_rgb)
-            )
+            embedding = self._run_gpu(lambda: self._pipeline.embed_image(image_rgb))
+            detections = []
+            crop_embeddings = []
+            if self._pipeline.mode == "siglip_yolo":
+                detections = self._run_gpu(lambda: self._pipeline.detect(image_rgb))
+                if bool(self.get_parameter("include_crop_embeddings").value):
+                    limit = max(0, int(self.get_parameter("max_crop_embeddings").value))
+                    crop_embeddings = self._run_gpu(
+                        lambda: self._pipeline.embed_crops(
+                            image_rgb, [d.box for d in detections[:limit]]
+                        )
+                    )
         except Exception as exc:  # noqa: BLE001
             return self._features_error(response, f"Pipeline error: {exc}")
 
         response.visual_embedding = embedding.tolist()
-        response.detected_objects = objects
+        response.detected_objects = list(dict.fromkeys(d.label for d in detections))
+        depth_image = None
+        intrinsics = None
+        depth_scale = 1.0
+        depth_frame = (
+            request.depth_image.header.frame_id
+            or request.camera_info.header.frame_id
+        )
+        if request.use_depth and request.depth_image.data:
+            try:
+                depth_image = np.asarray(self._bridge.imgmsg_to_cv2(
+                    request.depth_image, desired_encoding="passthrough"
+                ))
+                depth_scale = 0.001 if depth_image.dtype == np.uint16 else 1.0
+                matrix = request.camera_info.k
+                intrinsics = (
+                    float(matrix[0]), float(matrix[4]),
+                    float(matrix[2]), float(matrix[5]),
+                )
+            except Exception as exc:  # noqa: BLE001
+                self.get_logger().warn(
+                    f"Depth conversion failed; keeping 2D hypotheses: {exc}"
+                )
+                depth_image = None
+                intrinsics = None
+        object_observations = []
+        for index, detection in enumerate(detections):
+            msg = ObjectDetection()
+            msg.object_id = f"detection_{index:04d}"
+            msg.class_name = detection.label
+            msg.confidence = float(detection.confidence)
+            msg.bounding_box = [float(value) for value in detection.box]
+            msg.position_2d = [
+                float((detection.box[0] + detection.box[2]) * 0.5),
+                float((detection.box[1] + detection.box[3]) * 0.5),
+            ]
+            if index < len(crop_embeddings):
+                msg.crop_embedding = np.asarray(
+                    crop_embeddings[index], dtype=np.float32
+                ).tolist()
+            response.detections.append(msg)
+            position_3d = None
+            if depth_image is not None and intrinsics is not None:
+                position_3d = project_box_center(
+                    tuple(float(value) for value in detection.box),
+                    depth_image,
+                    intrinsics,
+                    depth_scale=depth_scale,
+                    minimum_depth_m=float(
+                        self.get_parameter("minimum_depth_m").value
+                    ),
+                    maximum_depth_m=float(
+                        self.get_parameter("maximum_depth_m").value
+                    ),
+                )
+            if position_3d is not None:
+                msg.position_3d = [float(value) for value in position_3d]
+                msg.position_3d_valid = True
+                msg.position_3d_frame = depth_frame
+            object_observations.append(ObjectObservation(
+                label=detection.label,
+                confidence=float(detection.confidence),
+                box=tuple(float(value) for value in detection.box),
+                embedding=(
+                    np.asarray(crop_embeddings[index], dtype=np.float32)
+                    if index < len(crop_embeddings) else None
+                ),
+                object_id=msg.object_id,
+                position_2d=tuple(msg.position_2d),
+                position_3d=position_3d,
+            ))
+        for relation in infer_relations(object_observations):
+            response.relations.append(_relation_message(
+                relation,
+                request.image.header.frame_id,
+                request.image.header.stamp,
+            ))
+        if depth_image is not None:
+            for relation in infer_3d_relations(
+                object_observations, reference_frame=depth_frame
+            ):
+                response.relations.append(_relation_message(
+                    relation,
+                    depth_frame,
+                    request.depth_image.header.stamp,
+                ))
         response.success = True
         response.message = "OK"
         self._publish_latency(t0)
@@ -312,6 +416,8 @@ class VisualEncoderNode(LifecycleNode):
         response.message = message
         response.visual_embedding = []
         response.detected_objects = []
+        response.detections = []
+        response.relations = []
         return response
 
     def _pipeline_diagnostic(
@@ -327,6 +433,18 @@ class VisualEncoderNode(LifecycleNode):
         return stat
 
 
+def _relation_message(relation, reference_frame, timestamp) -> SemanticRelation:
+    message = SemanticRelation()
+    message.subject_id = relation.subject_id or relation.subject
+    message.predicate = relation.predicate
+    message.object_id = relation.object_id or relation.obj
+    message.confidence = float(relation.confidence)
+    message.reference_frame = reference_frame or relation.reference_frame
+    message.relation_type = relation.relation_type
+    message.timestamp = timestamp
+    return message
+
+
 def main(args=None) -> None:
     rclpy.init(args=args)
     node = VisualEncoderNode()
@@ -337,8 +455,13 @@ def main(args=None) -> None:
     except KeyboardInterrupt:
         pass
     finally:
-        node.destroy_node()
-        rclpy.try_shutdown()
+        try:
+            executor.shutdown(timeout_sec=2.0)
+            node.destroy_node()
+        except KeyboardInterrupt:
+            pass
+        finally:
+            rclpy.try_shutdown()
 
 
 if __name__ == "__main__":

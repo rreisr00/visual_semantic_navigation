@@ -1,0 +1,216 @@
+suite_id: aws_small_house_validation_queries_v1
+scene_id: aws_small_house
+# CONJUNTO DE VALIDACION - exclusivamente para calibrar pesos y umbral
+# (manual seccion 8.3). No mezclar con la suite de test en ninguna campana
+# de resultados. Anotado contra el grafo congelado W1..W12, mismas reglas
+# exact/nearby que la suite de test, redacciones y objetivos distintos.
+cases:
+- case_id: val_room_kitchen
+  query_id: val_room_kitchen_en
+  query_text: walk over to the kitchen
+  query_type: room
+  language: en
+  start_pose_id: dormitorio
+  exact_valid_nodes: [W6, W7, W8]
+  nearby_valid_nodes: []
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: val_room_living
+  query_id: val_room_living_es
+  query_text: ve al salon de la casa
+  query_type: room
+  language: es
+  start_pose_id: cocina_sur
+  exact_valid_nodes: [W1, W2, W3, W4, W5]
+  nearby_valid_nodes: []
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: val_fridge
+  query_id: val_fridge_es
+  query_text: la nevera de acero inoxidable de dos puertas
+  query_type: object
+  language: es
+  start_pose_id: dormitorio
+  exact_valid_nodes: [W6]
+  nearby_valid_nodes: [W7, W8]
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: val_utensils
+  query_id: val_utensils_en
+  query_text: the cooking utensils hanging in the kitchen
+  query_type: object_room
+  language: en
+  start_pose_id: origin
+  exact_valid_nodes: [W6]
+  nearby_valid_nodes: [W8]
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: val_sink
+  query_id: val_sink_es
+  query_text: el fregadero de la cocina
+  query_type: object_room
+  language: es
+  start_pose_id: origin
+  exact_valid_nodes: [W6, W8]
+  nearby_valid_nodes: [W7]
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: val_sofa
+  query_id: val_sofa_en
+  query_text: the large white corner sofa
+  query_type: object
+  language: en
+  start_pose_id: cocina_sur
+  exact_valid_nodes: [W1, W4]
+  nearby_valid_nodes: [W3, W5]
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: val_tv
+  query_id: val_tv_es
+  query_text: la television sobre el mueble bajo de madera
+  query_type: object
+  language: es
+  start_pose_id: cocina_sur
+  exact_valid_nodes: [W4]
+  nearby_valid_nodes: [W2, W3, W5]
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: val_orange_chairs
+  query_id: val_orange_chairs_es
+  query_text: las sillas naranjas de diseno moderno
+  query_type: object
+  language: es
+  start_pose_id: cocina_sur
+  exact_valid_nodes: [W3, W4]
+  nearby_valid_nodes: [W1, W2]
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: val_bed
+  query_id: val_bed_en
+  query_text: the bed with the patterned duvet
+  query_type: object
+  language: en
+  start_pose_id: cocina_sur
+  exact_valid_nodes: [W9, W10]
+  nearby_valid_nodes: []
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: val_wardrobe
+  query_id: val_wardrobe_es
+  query_text: el armario alto de madera clara
+  query_type: object
+  language: es
+  start_pose_id: cocina_sur
+  exact_valid_nodes: [W10]
+  nearby_valid_nodes: [W9]
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: val_nightstand
+  query_id: val_nightstand_es
+  query_text: la mesilla blanca junto a la cama
+  query_type: object_relation
+  language: es
+  start_pose_id: cocina_sur
+  exact_valid_nodes: [W9]
+  nearby_valid_nodes: [W10]
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: val_air_conditioner
+  query_id: val_air_conditioner_es
+  query_text: el aire acondicionado de la pared del dormitorio
+  query_type: object
+  language: es
+  start_pose_id: cocina_sur
+  exact_valid_nodes: [W9, W10]
+  nearby_valid_nodes: []
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: val_gym_ball
+  query_id: val_gym_ball_es
+  query_text: la pelota azul de gimnasio
+  query_type: object
+  language: es
+  start_pose_id: origin
+  exact_valid_nodes: [W11]
+  nearby_valid_nodes: [W1, W12]
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: val_barbell
+  query_id: val_barbell_en
+  query_text: the barbell with black weight plates
+  query_type: object
+  language: en
+  start_pose_id: origin
+  exact_valid_nodes: [W11]
+  nearby_valid_nodes: [W4]
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: val_couch_near_chair
+  query_id: val_couch_near_chair_en
+  query_text: the couch next to a chair
+  query_type: object_relation
+  language: en
+  start_pose_id: cocina_sur
+  exact_valid_nodes: [W5]
+  nearby_valid_nodes: [W1, W4]
+  is_negative: false
+  target_visible: true
+  timeout_s: 300.0
+- case_id: val_neg_washer
+  query_id: val_neg_washer_es
+  query_text: la lavadora del lavadero
+  query_type: negative
+  language: es
+  start_pose_id: origin
+  exact_valid_nodes: []
+  nearby_valid_nodes: []
+  is_negative: true
+  target_visible: false
+  timeout_s: 60.0
+- case_id: val_neg_stairs
+  query_id: val_neg_stairs_en
+  query_text: the staircase to the upper floor
+  query_type: negative
+  language: en
+  start_pose_id: origin
+  exact_valid_nodes: []
+  nearby_valid_nodes: []
+  is_negative: true
+  target_visible: false
+  timeout_s: 60.0
+- case_id: val_neg_bathtub
+  query_id: val_neg_bathtub_es
+  query_text: la banera del cuarto de bano
+  query_type: negative
+  language: es
+  start_pose_id: origin
+  exact_valid_nodes: []
+  nearby_valid_nodes: []
+  is_negative: true
+  target_visible: false
+  timeout_s: 60.0
+- case_id: val_neg_microwave
+  query_id: val_neg_microwave_en
+  query_text: the microwave oven on the counter
+  query_type: negative
+  language: en
+  start_pose_id: origin
+  exact_valid_nodes: []
+  nearby_valid_nodes: []
+  is_negative: true
+  target_visible: false
+  timeout_s: 60.0

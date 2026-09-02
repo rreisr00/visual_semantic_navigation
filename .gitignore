@@ -69,3 +69,14 @@ dist/
 knowledge_graph.db
 yolov8n.pt
 
+
+# Experiment artifacts (regenerable and physically separated)
+experiments/offline/cache/
+experiments/offline/results/
+experiments/offline/manifests/
+experiments/simulation/cache/
+experiments/simulation/results/
+experiments/simulation/manifests/
+experiments/simulation/campaigns/
+experiments/data
+yolo26n.pt

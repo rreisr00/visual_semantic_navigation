@@ -1,0 +1,31 @@
+scene_id: semantic_office_lab
+annotation_version: 1
+rooms:
+  - room_id: open_lab
+    polygon: [[-5.8, -3.8], [-0.1, -3.8], [-0.1, 3.8], [-5.8, 3.8]]
+    valid_nodes: [workstation_north_01, workstation_north_02, workstation_south_01]
+  - room_id: meeting_room
+    polygon: [[0.1, 0.1], [5.8, 0.1], [5.8, 3.8], [0.1, 3.8]]
+    valid_nodes: [meeting_room_01, meeting_room_02]
+  - room_id: print_area
+    polygon: [[0.1, -3.8], [5.8, -3.8], [5.8, -0.1], [0.1, -0.1]]
+    valid_nodes: [print_area_01]
+objects:
+  - {instance_id: red_cup, category: cup, room_id: open_lab,
+     exact_valid_nodes: [workstation_north_01], nearby_valid_nodes: [workstation_north_02]}
+  - {instance_id: green_cup, category: cup, room_id: open_lab,
+     exact_valid_nodes: [workstation_south_01], nearby_valid_nodes: []}
+  - {instance_id: meeting_plant, category: plant, room_id: meeting_room,
+     exact_valid_nodes: [meeting_room_01], nearby_valid_nodes: [meeting_room_02]}
+  - {instance_id: printer, category: printer, room_id: print_area,
+     exact_valid_nodes: [print_area_01], nearby_valid_nodes: []}
+relations:
+  - {subject: red_cup, predicate: LEFT_OF, object: monitor_north,
+     relation_type: geometric_3d_relation, valid_nodes: [workstation_north_01]}
+  - {subject: green_cup, predicate: NEAR, object: monitor_south,
+     relation_type: geometric_3d_relation, valid_nodes: [workstation_south_01]}
+  - {subject: meeting_table, predicate: NEAR, object: meeting_plant,
+     relation_type: geometric_3d_relation, valid_nodes: [meeting_room_01]}
+  - {subject: printer, predicate: NEAR, object: bookshelf,
+     relation_type: geometric_3d_relation, valid_nodes: [print_area_01]}
+negative_queries: [negative_sofa_es]

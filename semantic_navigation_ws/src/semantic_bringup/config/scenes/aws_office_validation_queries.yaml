@@ -1,0 +1,60 @@
+suite_id: aws_office_validation_queries_v1
+scene_id: aws_office
+cases:
+- {case_id: val_room_cafeteria, query_id: val_room_cafeteria_es, query_text: ve a la cafeteria,
+   query_type: room, language: es, start_pose_id: origin, exact_valid_nodes: [O8],
+   nearby_valid_nodes: [], is_negative: false, target_visible: true, timeout_s: 300.0}
+- {case_id: val_room_recepcion, query_id: val_room_recepcion_es, query_text: ve a la recepcion,
+   query_type: room, language: es, start_pose_id: origin, exact_valid_nodes: [O10, O11],
+   nearby_valid_nodes: [], is_negative: false, target_visible: true, timeout_s: 300.0}
+- {case_id: val_room_oficinas, query_id: val_room_oficinas_es, query_text: ve a las oficinas,
+   query_type: room, language: es, start_pose_id: origin, exact_valid_nodes: [O5, O12],
+   nearby_valid_nodes: [], is_negative: false, target_visible: true, timeout_s: 300.0}
+- {case_id: val_fridge, query_id: val_fridge_en, query_text: a stainless steel refrigerator in a break room,
+   query_type: object, language: en, start_pose_id: origin, exact_valid_nodes: [O8],
+   nearby_valid_nodes: [O6], is_negative: false, target_visible: true, timeout_s: 300.0}
+- {case_id: val_stacked_chairs, query_id: val_stacked_chairs_es, query_text: las sillas apiladas sobre las mesas,
+   query_type: object, language: es, start_pose_id: origin, exact_valid_nodes: [O8, O6],
+   nearby_valid_nodes: [], is_negative: false, target_visible: true, timeout_s: 300.0}
+- {case_id: val_teal_partitions, query_id: val_teal_partitions_en, query_text: the blue cubicle partitions along a corridor,
+   query_type: object, language: en, start_pose_id: origin, exact_valid_nodes: [O1, O4, O13],
+   nearby_valid_nodes: [], is_negative: false, target_visible: true, timeout_s: 300.0}
+- {case_id: val_task_chair, query_id: val_task_chair_es, query_text: una silla de oficina roja frente a un escritorio,
+   query_type: object, language: es, start_pose_id: origin, exact_valid_nodes: [O5, O12],
+   nearby_valid_nodes: [O2], is_negative: false, target_visible: true, timeout_s: 300.0}
+- {case_id: val_boardroom, query_id: val_boardroom_es, query_text: la mesa de juntas con sillas granates,
+   query_type: object, language: es, start_pose_id: origin, exact_valid_nodes: [O14, O9],
+   nearby_valid_nodes: [], is_negative: false, target_visible: true, timeout_s: 300.0}
+- {case_id: val_lift, query_id: val_lift_en, query_text: two elevator doors in a lobby,
+   query_type: object, language: en, start_pose_id: origin, exact_valid_nodes: [O10, O11],
+   nearby_valid_nodes: [], is_negative: false, target_visible: true, timeout_s: 300.0}
+- {case_id: val_reception_desk, query_id: val_reception_desk_es, query_text: el mostrador curvo oscuro de la entrada,
+   query_type: object, language: es, start_pose_id: origin, exact_valid_nodes: [O11, O3],
+   nearby_valid_nodes: [O10], is_negative: false, target_visible: true, timeout_s: 300.0}
+- {case_id: val_blue_armchair, query_id: val_blue_armchair_es, query_text: el sillon azul junto a la pared,
+   query_type: object, language: es, start_pose_id: origin, exact_valid_nodes: [O3],
+   nearby_valid_nodes: [O11], is_negative: false, target_visible: true, timeout_s: 300.0}
+- {case_id: val_wc, query_id: val_wc_en, query_text: a white toilet in a tiled bathroom,
+   query_type: object, language: en, start_pose_id: origin, exact_valid_nodes: [O7],
+   nearby_valid_nodes: [], is_negative: false, target_visible: true, timeout_s: 300.0}
+- {case_id: val_microwave, query_id: val_microwave_es, query_text: el microondas sobre los armarios de cocina,
+   query_type: object, language: es, start_pose_id: origin, exact_valid_nodes: [O6],
+   nearby_valid_nodes: [O8], is_negative: false, target_visible: true, timeout_s: 300.0}
+- {case_id: val_monitor_desk, query_id: val_monitor_desk_en, query_text: a computer monitor inside a cubicle,
+   query_type: object, language: en, start_pose_id: origin, exact_valid_nodes: [O1, O13],
+   nearby_valid_nodes: [O4], is_negative: false, target_visible: true, timeout_s: 300.0}
+- {case_id: val_sofa_lounge, query_id: val_sofa_lounge_en, query_text: a grey fabric sofa in a waiting area,
+   query_type: object, language: en, start_pose_id: origin, exact_valid_nodes: [O10],
+   nearby_valid_nodes: [O6], is_negative: false, target_visible: true, timeout_s: 300.0}
+- {case_id: val_corridor_doors, query_id: val_corridor_doors_es, query_text: el pasillo con varias puertas de madera,
+   query_type: object_room, language: es, start_pose_id: origin, exact_valid_nodes: [O7],
+   nearby_valid_nodes: [], is_negative: false, target_visible: true, timeout_s: 300.0}
+- {case_id: val_neg_shower, query_id: val_neg_shower_es, query_text: la ducha del vestuario,
+   query_type: negative, language: es, start_pose_id: origin, exact_valid_nodes: [],
+   nearby_valid_nodes: [], is_negative: true, target_visible: false, timeout_s: 300.0}
+- {case_id: val_neg_greenhouse, query_id: val_neg_greenhouse_en, query_text: a greenhouse full of plants,
+   query_type: negative, language: en, start_pose_id: origin, exact_valid_nodes: [],
+   nearby_valid_nodes: [], is_negative: true, target_visible: false, timeout_s: 300.0}
+- {case_id: val_neg_workshop, query_id: val_neg_workshop_es, query_text: el taller mecanico con herramientas,
+   query_type: negative, language: es, start_pose_id: origin, exact_valid_nodes: [],
+   nearby_valid_nodes: [], is_negative: true, target_visible: false, timeout_s: 300.0}

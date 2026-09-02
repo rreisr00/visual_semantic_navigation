@@ -77,12 +77,14 @@ class TeleopCaptureNode(Node):
         self.declare_parameter("camera_topic", "/camera/image_raw")
         self.declare_parameter("capture_action_name", "capture_waypoint")
         self.declare_parameter("dataset_dir", "~/semantic_dataset")
-        # Empty label → the knowledge-graph bridge auto-names the waypoint
-        # after the room containing the robot's pose ("<room>_<NN>").
+        # Empty label → the bridge creates the next compact id (W1, W2, …).
         self.declare_parameter("capture_label", "")
         self.declare_parameter("linear_speed", 0.4)
         self.declare_parameter("angular_speed", 0.8)
         self.declare_parameter("server_wait_timeout_s", 5.0)
+        self.declare_parameter("scene_id", "aws_small_house")
+        self.declare_parameter("multiview_capture", True)
+        self.declare_parameter("capture_views_deg", [0.0, 90.0, 180.0, 270.0])
         # Jazzy convention: the gz bridge and Nav2 (enable_stamped_cmd_vel)
         # expect geometry_msgs/TwistStamped on cmd_vel. A plain Twist publisher
         # is type-incompatible and the robot silently ignores the teleop.
@@ -174,7 +176,7 @@ class TeleopCaptureNode(Node):
 
         ts = time.strftime("%Y%m%d_%H%M%S")
         self._save_frame(image, ts)
-        # Empty label lets the bridge name the waypoint after its room.
+        # Empty label lets the bridge choose the next W<number> identifier.
         self._trigger_capture_action(f"{self._label}_{ts}" if self._label else "")
 
     def _save_frame(self, image: Image, ts: str) -> None:
@@ -196,6 +198,14 @@ class TeleopCaptureNode(Node):
             return
         goal = CaptureWaypoint.Goal()
         goal.label = label
+        goal.scene_id = self.get_parameter("scene_id").value
+        goal.requested_yaw = 0.0
+        if bool(self.get_parameter("multiview_capture").value):
+            goal.relative_view_yaws_deg = [
+                float(value)
+                for value in self.get_parameter("capture_views_deg").value
+            ]
+            goal.rotate_robot = True
         future = self._capture_client.send_goal_async(goal)
         future.add_done_callback(self._on_capture_goal)
         self.get_logger().info(f"Capture goal sent (label='{label}').")
@@ -218,7 +228,10 @@ class TeleopCaptureNode(Node):
             self.get_logger().error(f"Capture result failed: {exc}")
             return
         if result.success:
-            self.get_logger().info(f"Captured waypoint '{result.node_id}'.")
+            self.get_logger().info(
+                f"Captured waypoint '{result.node_id}' "
+                f"with {result.captured_views} view(s)."
+            )
         else:
             self.get_logger().error(f"Capture failed: {result.message}")
 

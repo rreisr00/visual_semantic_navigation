@@ -82,3 +82,35 @@ class TestCaseResult:
     score: float = NAN
     top1_correct: bool = False
     room_correct: bool = False
+    query_id: str = ""
+    query_type: str = ""
+    language: str = ""
+    exact_valid_nodes: list[str] = field(default_factory=list)
+    nearby_valid_nodes: list[str] = field(default_factory=list)
+    rank_first_valid: int | None = None
+    is_negative: bool = False
+    target_visible: bool = True
+    accepted: bool = False
+    semantic_success: bool = False
+    nearby_semantic_success: bool = False
+    navigation_success: bool | None = None
+    end_to_end_success: bool | None = None
+    retrieval_latency_ms: float = NAN
+    navigation_time_s: float = NAN
+    failure_type: str = ""
+    nav2_error_code: int = 0
+    nav2_error_message: str = ""
+    top_k_candidates: list[str] = field(default_factory=list)
+    campaign_id: str = ""
+    run_id: str = ""
+    scene_id: str = ""
+    method: str = ""
+    start_pose_id: str = ""
+    frozen_config_hash: str = ""
+    number_of_recoveries: int = 0
+    path_length_m: float = NAN
+    optimal_path_length_m: float = NAN
+    spl: float = NAN
+    final_distance_m: float = NAN
+    adjustment_distance_m: float = NAN
+    goal_validation_status: str = ""

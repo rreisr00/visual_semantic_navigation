@@ -1,6 +1,11 @@
 sensor_msgs/Image image
+sensor_msgs/Image depth_image
+sensor_msgs/CameraInfo camera_info
+bool use_depth
 ---
 float32[] visual_embedding
 string[] detected_objects
+ObjectDetection[] detections
+SemanticRelation[] relations
 bool success
 string message

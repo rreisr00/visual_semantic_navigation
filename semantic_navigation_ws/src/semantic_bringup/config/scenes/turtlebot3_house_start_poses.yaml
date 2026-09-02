@@ -1,0 +1,6 @@
+scene_id: turtlebot3_house
+frame_id: map
+poses:
+  - pose_id: entrance
+    position: [-2.0, -0.5, 0.01]
+    orientation: [0.0, 0.0, 0.0, 1.0]

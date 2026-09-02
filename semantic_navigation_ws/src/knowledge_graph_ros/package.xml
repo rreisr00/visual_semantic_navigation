@@ -18,6 +18,7 @@
   <!-- ROS 2 runtime -->
   <exec_depend>rclpy</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
 
   <!-- Third-party knowledge graph library (in-workspace) -->
   <exec_depend>knowledge_graph</exec_depend>

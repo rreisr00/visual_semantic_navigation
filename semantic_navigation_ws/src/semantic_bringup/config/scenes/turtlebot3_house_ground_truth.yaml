@@ -1,0 +1,19 @@
+scene_id: turtlebot3_house
+annotation_version: 1
+rooms:
+  - room_id: dining_area
+    valid_nodes: [dining_area_01, dining_area_02]
+  - room_id: entrance
+    valid_nodes: [mailbox_01]
+objects:
+  - category: dining_table
+    room_id: dining_area
+    exact_valid_nodes: [dining_area_01]
+    nearby_valid_nodes: [dining_area_02]
+  - category: mailbox
+    room_id: entrance
+    exact_valid_nodes: [mailbox_01]
+    nearby_valid_nodes: []
+relations: []
+negative_queries: [negative_elevator_en]
+

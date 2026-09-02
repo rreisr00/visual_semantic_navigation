@@ -134,6 +134,7 @@ class AggregateResult:
     top1_rate: float = 0.0
     room_rate: float = 0.0
     success_rate: float = 0.0
+    room_false_positive_rate: float = float("nan")
     mean_visual_extraction_s: float = float("nan")
     mean_retrieval_s: float = float("nan")
     mean_navigation_s: float = float("nan")
@@ -173,11 +174,16 @@ def aggregate(
 
     annotated = [annotate_accuracy(r, separator, strategy, room_map) for r in results]
 
+    invisible = [result for result in annotated if not result.target_visible]
     return AggregateResult(
         n_cases=n,
         top1_rate=sum(1 for r in annotated if r.top1_correct) / n,
         room_rate=sum(1 for r in annotated if r.room_correct) / n,
         success_rate=sum(1 for r in annotated if r.success) / n,
+        room_false_positive_rate=(
+            sum(1 for result in invisible if result.accepted) / len(invisible)
+            if invisible else float("nan")
+        ),
         mean_visual_extraction_s=_nan_mean(
             r.latency.visual_extraction_s for r in annotated
         ),

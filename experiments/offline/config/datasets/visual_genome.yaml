@@ -1,0 +1,20 @@
+dataset_id: visual_genome
+adapter: visual_genome
+root: "${VISUAL_GENOME_ROOT}"
+queries_file: experiments/offline/config/queries/visual_genome_queries.yaml
+enabled: true
+split:
+  name: validation
+annotations:
+  relationships_file: relationships.json
+  image_data_file: image_data.json
+  indoor_image_ids_file: null
+  predicates:
+    - LEFT_OF
+    - RIGHT_OF
+    - ABOVE
+    - BELOW
+    - NEAR
+    - OVERLAPS
+    - POSSIBLY_ON_TOP_OF
+

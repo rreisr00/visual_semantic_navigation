@@ -9,8 +9,21 @@ evaluation_collector:
 
     # Campaign I/O.
     test_suite_path: ""                           # set to an absolute test_suite.yaml
-    output_dir: "~/ros2_evaluation_results"
-    output_filename_prefix: "evaluation"
+    ground_truth_path: ""
+    graph_database: ""
+    map_file: ""
+    frozen_config_path: ""
+    output_dir: "~/visual_semantic_navigation/experiments/simulation/campaigns"
+    campaign_id: ""
+    scene_id: "scene_unset"
+    run_id: ""
+    seed: 42
+    method: "single_view_siglip"
+    start_pose_id: "start_pose_unset"
+    query_suite_id: ""
+    frozen_config_hash: ""
+    # Leave empty unless the action result's success field has been verified.
+    success_semantics: ""
 
     # Decision-only (dry_run): orchestrator ranks but does not drive Nav2;
     # navigation_s comes back as NaN.
@@ -32,6 +45,11 @@ evaluation_collector:
     goal_response_timeout_s: 15.0
     result_timeout_s: 330.0
     hardware_refresh_period_s: 0.5
+    start_poses_path: ""
+    reset_pose_service: /world/default/set_pose
+    robot_entity_name: waffle
+    initial_pose_topic: /initialpose
+    localization_settle_s: 5.0
 
 graph_visualizer:
   ros__parameters:
@@ -60,6 +78,9 @@ teleop_capture:
     linear_speed: 0.4
     angular_speed: 0.8
     server_wait_timeout_s: 5.0
+    scene_id: "aws_small_house"
+    multiview_capture: true
+    capture_views_deg: [0.0, 90.0, 180.0, 270.0]
     # Jazzy: the gz bridge + Nav2 expect geometry_msgs/TwistStamped on
     # cmd_vel; set false only for robots using unstamped Twist.
     stamped_cmd_vel: true

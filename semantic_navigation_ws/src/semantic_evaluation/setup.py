@@ -21,7 +21,9 @@ setup(
     maintainer_email="rreisr00@estudiantes.unileon.es",
     description=(
         "UF-7 evaluation tooling (metric collection + CSV, teleop capture, "
-        "knowledge-graph RViz visualizer). Pure-Python core, no ROS in core/."
+        "operator GUI with voice navigation and knowledge-graph RViz "
+        "visualizer). Pure-Python core, "
+        "no ROS in core/."
     ),
     license="Apache-2.0",
     tests_require=["pytest"],
@@ -29,6 +31,7 @@ setup(
         "console_scripts": [
             "evaluation_collector = semantic_evaluation.evaluation_collector:main",
             "graph_visualizer = semantic_evaluation.graph_visualizer:main",
+            "semantic_operator_gui = semantic_evaluation.operator_gui:main",
             "teleop_capture = semantic_evaluation.teleop_capture:main",
         ],
     },

@@ -1,0 +1,7 @@
+scene_id: aws_office
+enabled: true
+graph_db: "~/.ros/semantic_maps/aws_office/graph.db"
+queries_file: semantic_navigation_ws/src/semantic_bringup/config/scenes/aws_office_queries.yaml
+metadata:
+  ground_truth_file: semantic_navigation_ws/src/semantic_bringup/config/scenes/aws_office_ground_truth.yaml
+  images_dir: "~/.ros/semantic_maps/aws_office/images"

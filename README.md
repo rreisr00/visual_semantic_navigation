@@ -278,6 +278,16 @@ waypoints. An ANN index (FAISS/hnswlib) is intentionally **not** included yet.
 
 ---
 
+## Offline experiments (Jupyter)
+
+`experiments/offline/` evaluates external datasets without importing ROS data,
+while `experiments/simulation/` analyses versioned ROS 2 campaigns. Both paths
+reuse the same pure modules wrapped by the ROS nodes (`SemanticVisionPipeline`,
+semantic retrieval, metrics and schemas), but keep their configurations,
+queries, caches and results physically separate. See
+[`docs/EXPERIMENTS.md`](docs/EXPERIMENTS.md) for dataset manifests, execution,
+configuration freezing and campaign commands.
+
 ## Testing
 
 ```bash

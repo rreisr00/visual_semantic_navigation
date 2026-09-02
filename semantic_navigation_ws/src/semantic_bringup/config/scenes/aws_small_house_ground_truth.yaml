@@ -1,0 +1,92 @@
+scene_id: aws_small_house
+annotation_version: 2
+rooms:
+- room_id: salon
+  valid_nodes:
+  - W1
+  - W2
+  - W3
+  - W4
+  - W5
+- room_id: cocina
+  valid_nodes:
+  - W6
+  - W7
+  - W8
+- room_id: habitacion1
+  valid_nodes:
+  - W9
+  - W10
+- room_id: habitacion2
+  valid_nodes:
+  - W11
+  - W12
+objects:
+- category: refrigerator
+  room_id: cocina
+  exact_valid_nodes:
+  - W6
+  nearby_valid_nodes:
+  - W7
+  - W8
+- category: dining table
+  room_id: cocina
+  exact_valid_nodes:
+  - W8
+  nearby_valid_nodes:
+  - W7
+- category: couch
+  room_id: salon
+  exact_valid_nodes:
+  - W1
+  - W4
+  nearby_valid_nodes:
+  - W3
+  - W5
+- category: tv
+  room_id: salon
+  exact_valid_nodes:
+  - W4
+  nearby_valid_nodes:
+  - W2
+  - W3
+  - W5
+- category: chair
+  room_id: salon
+  exact_valid_nodes:
+  - W3
+  - W4
+  nearby_valid_nodes:
+  - W1
+  - W2
+- category: bench
+  room_id: salon
+  exact_valid_nodes:
+  - W1
+  nearby_valid_nodes:
+  - W2
+  - W4
+- category: cup
+  room_id: salon
+  exact_valid_nodes:
+  - W1
+  - W3
+  nearby_valid_nodes:
+  - W8
+  - W10
+- category: bed
+  room_id: habitacion1
+  exact_valid_nodes:
+  - W9
+  - W10
+  nearby_valid_nodes: []
+relations:
+- subject: tv
+  predicate: NEAR
+  object: dining table
+  relation_type: geometric_3d_relation
+  valid_nodes:
+  - W5
+negative_queries:
+- negative_pool_es
+- negative_elevator_en

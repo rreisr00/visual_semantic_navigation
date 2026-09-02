@@ -1,0 +1,17 @@
+scene_id: aws_small_house
+frame_id: map
+# Poses tomadas de waypoints reales del grafo (el robot ya estuvo ahi, luego son
+# navegables). Ninguna coincide con un nodo valido de los casos que la usan.
+poses:
+  - pose_id: origin
+    position: [0.0, 0.0, 0.01]
+    orientation: [0.0, 0.0, 0.0, 1.0]
+  - pose_id: cocina_sur
+    position: [7.5015, -3.6854, 0.01]
+    orientation: [0.0, 0.0, -0.4787037, 0.8779765]
+  - pose_id: dormitorio
+    position: [-8.1820, -0.4860, 0.01]
+    orientation: [0.0, 0.0, -0.1686111, 0.9856827]
+  - pose_id: gimnasio
+    position: [-4.8880, -3.1409, 0.01]
+    orientation: [0.0, 0.0, 0.9077216, 0.4195730]

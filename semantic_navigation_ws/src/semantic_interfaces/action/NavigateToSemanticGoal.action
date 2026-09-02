@@ -5,6 +5,11 @@ sensor_msgs/Image query_image     # Used when use_image is true.
 bool use_image
 bool decision_only                # If true, stop after ranking (no Nav2 drive);
                                   # navigation_s is returned as NaN.
+string language
+string scene_id
+string current_node_id
+int32 top_k
+bool navigate
 ---
 # Result
 bool success
@@ -16,6 +21,24 @@ string message
 float64 visual_extraction_s
 float64 retrieval_s
 float64 navigation_s
+bool accepted
+geometry_msgs/PoseStamped predicted_pose
+RetrievalCandidate[] top_k_candidates
+string rejection_reason
+float64 retrieval_latency_ms
+bool navigation_success
+string failure_type
+uint16 nav2_error_code
+string nav2_error_message
+int32 number_of_recoveries
+float64 path_length_m
+float64 optimal_path_length_m
+float64 spl
+float64 final_distance_m
+geometry_msgs/PoseStamped original_node_pose
+geometry_msgs/PoseStamped adjusted_goal_pose
+float64 adjustment_distance_m
+string goal_validation_status
 ---
 # Feedback
 # stage one of: "embedding", "ranking", "navigating"

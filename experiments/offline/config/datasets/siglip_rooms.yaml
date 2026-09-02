@@ -1,0 +1,9 @@
+dataset_id: siglip_rooms
+adapter: siglip_rooms
+root: experiments/siglip/images
+queries_file: experiments/offline/config/queries/siglip_rooms_queries.yaml
+enabled: true
+split:
+  name: validation
+  max_images_per_room: null
+

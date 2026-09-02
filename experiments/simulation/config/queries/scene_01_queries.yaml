@@ -1,0 +1,74 @@
+queries:
+  - query_id: aws_kitchen_es
+    text: ve a la cocina
+    language: es
+    query_type: room
+    dataset_id: null
+    scene_id: aws_small_house
+    valid_node_ids: []
+    expected_room: cocina
+    expected_objects: []
+    expected_relations: []
+    is_negative: false
+    metadata: {}
+  - query_id: aws_living_room_en
+    text: go to the living room
+    language: en
+    query_type: room
+    dataset_id: null
+    scene_id: aws_small_house
+    valid_node_ids: []
+    expected_room: salon
+    expected_objects: []
+    expected_relations: []
+    is_negative: false
+    metadata: {}
+  - query_id: aws_cup_es
+    text: busca el sitio donde hay una taza
+    language: es
+    query_type: object
+    dataset_id: null
+    scene_id: aws_small_house
+    valid_node_ids: []
+    expected_room: null
+    expected_objects: [cup]
+    expected_relations: []
+    is_negative: false
+    metadata: {annotation_status: pending}
+  - query_id: aws_tv_en
+    text: find the television set
+    language: en
+    query_type: object
+    dataset_id: null
+    scene_id: aws_small_house
+    valid_node_ids: []
+    expected_room: null
+    expected_objects: [tv]
+    expected_relations: []
+    is_negative: false
+    metadata: {annotation_status: pending}
+  - query_id: aws_cup_near_tv_es
+    text: ve donde hay una taza cerca de una televisión
+    language: es
+    query_type: relation
+    dataset_id: null
+    scene_id: aws_small_house
+    valid_node_ids: []
+    expected_room: null
+    expected_objects: [cup, tv]
+    expected_relations:
+      - {subject: cup, predicate: NEAR, obj: tv}
+    is_negative: false
+    metadata: {annotation_status: pending}
+  - query_id: aws_elevator_negative_es
+    text: ve al ascensor
+    language: es
+    query_type: negative
+    dataset_id: null
+    scene_id: aws_small_house
+    valid_node_ids: []
+    expected_room: null
+    expected_objects: []
+    expected_relations: []
+    is_negative: true
+    metadata: {}

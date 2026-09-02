@@ -4,7 +4,7 @@
   <name>semantic_vision_core</name>
   <version>0.1.0</version>
   <description>
-    Pure-Python vision pipeline (SigLIP 2 + optional YOLOv8).
+    Pure-Python vision pipeline (SigLIP base + optional YOLOv8).
     No ROS 2 imports — fully testable outside a ROS environment.
   </description>
   <maintainer email="rreisr00@estudiantes.unileon.es">developer</maintainer>

@@ -236,6 +236,8 @@ class VoiceCommandNode(Node):
     def _dispatch_capture(self, intent: SaveWaypoint) -> None:
         goal = CaptureWaypoint.Goal()
         goal.label = intent.label
+        goal.scene_id = ""
+        goal.requested_yaw = 0.0
         self.get_logger().info(f"Capturing waypoint (label='{intent.label}')…")
         self._send(self._capture_client, "capture_waypoint", goal)
 
@@ -244,6 +246,8 @@ class VoiceCommandNode(Node):
         goal.query_text = intent.query
         goal.use_image = False
         goal.decision_only = False
+        goal.navigate = True
+        goal.top_k = 5
         self.get_logger().info(f"Semantic goal: \"{intent.query}\"…")
         self._send(self._semantic_client, "navigate_to_semantic_goal", goal,
                    feedback_cb=self._on_semantic_feedback)

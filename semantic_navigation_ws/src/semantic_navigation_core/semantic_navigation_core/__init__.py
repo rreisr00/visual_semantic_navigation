@@ -11,12 +11,63 @@ from semantic_navigation_core.ranking import (
     SIGLIP_YOLO,
     SUPPORTED_MODES,
 )
-from semantic_navigation_core.types import RankedWaypoint, Waypoint
+from semantic_navigation_core.multiview import (
+    MultiviewConfig,
+    aggregate_view_scores,
+    mean_embedding,
+    score_node_views,
+)
+from semantic_navigation_core.relations import infer_relations, match_relations
+from semantic_navigation_core.query_semantics import (
+    QuerySemantics,
+    extract_query_semantics,
+    normalize_query_text,
+)
+from semantic_navigation_core.path_metrics import path_length_2d, spl
+from semantic_navigation_core.retrieval import (
+    HybridWeights,
+    RetrievalConfig,
+    SemanticQuery,
+    default_weights,
+    rank_nodes,
+    SUPPORTED_METHODS,
+)
+from semantic_navigation_core.types import (
+    Observation,
+    ObjectObservation,
+    RankedNode,
+    RankedWaypoint,
+    SemanticNode,
+    SpatialRelation,
+    Waypoint,
+)
 
 __all__ = [
     "CaptureState",
     "CaptureStateMachine",
+    "MultiviewConfig",
+    "aggregate_view_scores",
+    "mean_embedding",
+    "score_node_views",
+    "infer_relations",
+    "match_relations",
+    "QuerySemantics",
+    "extract_query_semantics",
+    "normalize_query_text",
+    "path_length_2d",
+    "spl",
+    "HybridWeights",
+    "RetrievalConfig",
+    "SemanticQuery",
+    "default_weights",
+    "rank_nodes",
+    "SUPPORTED_METHODS",
+    "Observation",
+    "ObjectObservation",
+    "RankedNode",
     "RankedWaypoint",
+    "SemanticNode",
+    "SpatialRelation",
     "Waypoint",
     "cosine_similarity",
     "jaccard",

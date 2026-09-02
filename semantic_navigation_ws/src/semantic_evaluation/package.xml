@@ -5,9 +5,9 @@
   <version>0.1.0</version>
   <description>
     UF-7 evaluation tooling for the semantic navigation stack: real-time metric
-    collection + CSV export, keyboard teleop with waypoint capture, and an RViz2
-    knowledge-graph visualizer. Business logic lives in a pure-Python core
-    (semantic_evaluation.core) with no ROS dependency.
+    collection + CSV export, graphical and keyboard teleoperation with waypoint
+    capture, room creation, voice navigation, and an RViz2 knowledge-graph
+    visualizer. Business logic lives in a pure-Python core.
   </description>
   <maintainer email="rreisr00@estudiantes.unileon.es">developer</maintainer>
   <license>Apache-2.0</license>
@@ -15,15 +15,25 @@
   <buildtool_depend>ament_python</buildtool_depend>
 
   <exec_depend>rclpy</exec_depend>
+  <exec_depend>action_msgs</exec_depend>
+  <exec_depend>nav2_msgs</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>ros_gz_interfaces</exec_depend>
   <exec_depend>visualization_msgs</exec_depend>
   <exec_depend>builtin_interfaces</exec_depend>
   <exec_depend>semantic_interfaces</exec_depend>
+  <exec_depend>semantic_voice</exec_depend>
   <exec_depend>cv_bridge</exec_depend>
+  <exec_depend>python_qt_binding</exec_depend>
   <exec_depend>python3-psutil</exec_depend>
   <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-pandas</exec_depend>
+  <!-- Offline experiment core (retrieval methods, graph store, dataset adapter). -->
+  <exec_depend>semantic_navigation_core</exec_depend>
 
   <test_depend>ament_copyright</test_depend>
   <test_depend>ament_flake8</test_depend>

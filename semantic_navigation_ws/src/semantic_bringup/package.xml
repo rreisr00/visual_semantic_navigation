@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>
     Deployment package for the visual-semantic navigation project.
-    Self-contained bringup that launches Gazebo (AWS Small House), TurtleBot3 Waffle,
+    Self-contained bringup that launches Gazebo (AWS Small House or Office), a tall RGB-D robot,
     the full Nav2 stack, RViz2, and the semantic map manager nodes.
     Isolates all project-specific configuration from the system base packages.
   </description>
@@ -13,11 +13,23 @@
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <exec_depend>python3-yaml</exec_depend>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>sensor_msgs</exec_depend>
+
+  <test_depend>ament_cmake_pytest</test_depend>
 
   <!-- Simulation -->
   <exec_depend>ros_gz_sim</exec_depend>
+  <exec_depend>ros_gz_interfaces</exec_depend>
+  <exec_depend>ros_gz_bridge</exec_depend>
+  <exec_depend>robot_state_publisher</exec_depend>
   <exec_depend>turtlebot3_gazebo</exec_depend>
+  <exec_depend>semantic_robot_description</exec_depend>
   <exec_depend>aws_robomaker_small_house_world</exec_depend>
+  <exec_depend>aws_robomaker_office_world</exec_depend>
 
   <!-- Navigation -->
   <exec_depend>nav2_bringup</exec_depend>
@@ -33,7 +45,12 @@
   <exec_depend>nav2_velocity_smoother</exec_depend>
   <exec_depend>nav2_collision_monitor</exec_depend>
   <exec_depend>nav2_lifecycle_manager</exec_depend>
+  <exec_depend>slam_toolbox</exec_depend>
   <exec_depend>opennav_docking</exec_depend>
+  <exec_depend>tf2_ros</exec_depend>
+  <exec_depend>ros2action</exec_depend>
+  <exec_depend>ros2node</exec_depend>
+  <exec_depend>ros2topic</exec_depend>
 
   <!-- Visualization -->
   <exec_depend>rviz2</exec_depend>
@@ -45,6 +62,7 @@
   <exec_depend>semantic_navigation_core</exec_depend>
   <exec_depend>semantic_navigation_ros</exec_depend>
   <exec_depend>knowledge_graph_ros</exec_depend>
+  <exec_depend>semantic_evaluation</exec_depend>
 
   <export>
     <build_type>ament_cmake</build_type>

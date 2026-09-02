@@ -1,0 +1,158 @@
+queries:
+  - query_id: siglip_rooms_kitchen_es
+    text: ve a la cocina
+    language: es
+    query_type: room
+    dataset_id: siglip_rooms
+    scene_id: null
+    valid_node_ids: []
+    expected_room: kitchen
+    expected_objects: []
+    expected_relations: []
+    is_negative: false
+    metadata: {pair_id: kitchen_direct}
+  - query_id: siglip_rooms_kitchen_en
+    text: go to the kitchen
+    language: en
+    query_type: room
+    dataset_id: siglip_rooms
+    scene_id: null
+    valid_node_ids: []
+    expected_room: kitchen
+    expected_objects: []
+    expected_relations: []
+    is_negative: false
+    metadata: {pair_id: kitchen_direct}
+  - query_id: siglip_rooms_kitchen_paraphrase_es
+    text: el lugar donde se cocina y se preparan los alimentos
+    language: es
+    query_type: room
+    dataset_id: siglip_rooms
+    scene_id: null
+    valid_node_ids: []
+    expected_room: kitchen
+    expected_objects: []
+    expected_relations: []
+    is_negative: false
+    metadata: {paraphrase_of: siglip_rooms_kitchen_es}
+  - query_id: siglip_rooms_bedroom_object_es
+    text: ve a la habitación con una cama
+    language: es
+    query_type: object
+    dataset_id: siglip_rooms
+    scene_id: null
+    valid_node_ids: []
+    expected_room: bedroom
+    expected_objects: [bed]
+    expected_relations: []
+    is_negative: false
+    metadata: {pair_id: bedroom_bed}
+  - query_id: siglip_rooms_bedroom_object_en
+    text: the room with a bed
+    language: en
+    query_type: object
+    dataset_id: siglip_rooms
+    scene_id: null
+    valid_node_ids: []
+    expected_room: bedroom
+    expected_objects: [bed]
+    expected_relations: []
+    is_negative: false
+    metadata: {pair_id: bedroom_bed}
+  - query_id: siglip_rooms_bathroom_es
+    text: ve al cuarto de baño
+    language: es
+    query_type: room
+    dataset_id: siglip_rooms
+    scene_id: null
+    valid_node_ids: []
+    expected_room: bathroom
+    expected_objects: []
+    expected_relations: []
+    is_negative: false
+    metadata: {}
+  - query_id: siglip_rooms_bathroom_objects_en
+    text: the bathroom with a sink and a toilet
+    language: en
+    query_type: multi_object
+    dataset_id: siglip_rooms
+    scene_id: null
+    valid_node_ids: []
+    expected_room: bathroom
+    expected_objects: [sink, toilet]
+    expected_relations: []
+    is_negative: false
+    metadata: {}
+  - query_id: siglip_rooms_children_room_es
+    text: la habitación de los niños con juguetes
+    language: es
+    query_type: attribute
+    dataset_id: siglip_rooms
+    scene_id: null
+    valid_node_ids: []
+    expected_room: children_room
+    expected_objects: []
+    expected_relations: []
+    is_negative: false
+    metadata: {}
+  - query_id: siglip_rooms_garage_es
+    text: ve al garaje donde está aparcado el coche
+    language: es
+    query_type: functional
+    dataset_id: siglip_rooms
+    scene_id: null
+    valid_node_ids: []
+    expected_room: garage
+    expected_objects: [car]
+    expected_relations: []
+    is_negative: false
+    metadata: {}
+  - query_id: siglip_rooms_livingroom_es
+    text: el salón con un sofá y una televisión
+    language: es
+    query_type: multi_object
+    dataset_id: siglip_rooms
+    scene_id: null
+    valid_node_ids: []
+    expected_room: livingroom
+    expected_objects: [couch, tv]
+    expected_relations: []
+    is_negative: false
+    metadata: {pair_id: livingroom_functional}
+  - query_id: siglip_rooms_livingroom_en
+    text: the living room where I can watch TV sitting on the sofa
+    language: en
+    query_type: functional
+    dataset_id: siglip_rooms
+    scene_id: null
+    valid_node_ids: []
+    expected_room: livingroom
+    expected_objects: [couch, tv]
+    expected_relations: []
+    is_negative: false
+    metadata: {pair_id: livingroom_functional}
+  - query_id: siglip_rooms_pool_negative_es
+    text: ve a la piscina
+    language: es
+    query_type: negative
+    dataset_id: siglip_rooms
+    scene_id: null
+    valid_node_ids: []
+    expected_room: null
+    expected_objects: []
+    expected_relations: []
+    is_negative: true
+    metadata: {}
+  - query_id: siglip_rooms_elevator_negative_en
+    text: go to the elevator
+    language: en
+    query_type: negative
+    dataset_id: siglip_rooms
+    scene_id: null
+    valid_node_ids: []
+    expected_room: null
+    expected_objects: []
+    expected_relations: []
+    is_negative: true
+    metadata: {}
+

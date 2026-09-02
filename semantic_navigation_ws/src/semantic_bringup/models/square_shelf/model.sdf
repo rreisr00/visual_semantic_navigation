@@ -1,0 +1,28 @@
+<?xml version='1.0' encoding='utf-8'?>
+<sdf version="1.6">
+  <model name="square_shelf">
+   <static>true</static>
+    <link name="body">
+      <pose>0 0 0 0 0 0</pose>
+
+      <visual name="visual">
+        <geometry>
+          <mesh>
+            <uri>meshes/SquareShelf.obj</uri>
+            <!-- After a 90 degree world rotation this matches the original
+                 0.5 x 2.0 x 2.0 m bookshelf and the static map. -->
+            <scale>2.6 1.25 2.6</scale>
+          </mesh>
+        </geometry>
+      </visual>
+
+      <collision name="collision">
+        <pose>0 0 1.0 0 0 0</pose>
+        <geometry>
+          <box><size>2.0 0.5 2.0</size></box>
+        </geometry>
+      </collision>
+
+    </link>
+  </model>
+</sdf>

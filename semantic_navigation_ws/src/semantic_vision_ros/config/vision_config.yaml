@@ -15,3 +15,8 @@ visual_encoder:
 
     # Minimum YOLO detection confidence [0.0, 1.0]
     yolo_confidence_threshold: 0.4
+    include_crop_embeddings: true
+    max_crop_embeddings: 16
+    local_files_only: true
+    minimum_depth_m: 0.1
+    maximum_depth_m: 10.0
